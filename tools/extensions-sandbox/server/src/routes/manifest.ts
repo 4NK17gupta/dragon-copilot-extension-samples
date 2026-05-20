@@ -24,13 +24,13 @@ const upload = multer({
   },
 });
 
-// Load the official DCR extension manifest JSON schema
+// Load the Dragon Copilot extension manifest JSON schema
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const schemaPath = join(__dirname, '..', 'schemas', 'dcr-extension-manifest-schema.json');
+const schemaPath = join(__dirname, '..', 'schemas', 'extension-manifest.json');
 const manifestJsonSchema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
 
-const ajv = new Ajv({ allErrors: true, verbose: true, strict: false });
+const ajv = new Ajv({ allErrors: true, verbose: true });
 addFormats(ajv);
 const validate = ajv.compile(manifestJsonSchema);
 
