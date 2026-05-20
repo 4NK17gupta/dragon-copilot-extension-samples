@@ -1,9 +1,12 @@
 import { Router } from 'express';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import multer from 'multer';
 import yaml from 'js-yaml';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
-import { manifestSchema, type ExtensionManifest } from '../schemas/manifest.schema.js';
+import type { ExtensionManifest } from '../schemas/manifest.schema.js';
 import { sessionStore } from '../store/session.js';
 
 export const manifestRouter = Router();
@@ -21,9 +24,15 @@ const upload = multer({
   },
 });
 
+// Load the official DCR extension manifest JSON schema
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const schemaPath = join(__dirname, '..', 'schemas', 'dcr-extension-manifest-schema.json');
+const manifestJsonSchema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
+
 const ajv = new Ajv({ allErrors: true, verbose: true });
 addFormats(ajv);
-const validate = ajv.compile(manifestSchema);
+const validate = ajv.compile(manifestJsonSchema);
 
 /**
  * POST /api/manifest/upload
