@@ -30,7 +30,7 @@ const __dirname = dirname(__filename);
 const schemaPath = join(__dirname, '..', 'schemas', 'dcr-extension-manifest-schema.json');
 const manifestJsonSchema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
 
-const ajv = new Ajv({ allErrors: true, verbose: true });
+const ajv = new Ajv({ allErrors: true, verbose: true, strict: false });
 addFormats(ajv);
 const validate = ajv.compile(manifestJsonSchema);
 
