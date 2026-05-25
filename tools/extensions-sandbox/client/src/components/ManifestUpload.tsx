@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router-dom';
 
 interface ValidationError {
   path: string | null;
+  line?: number | null;
   message: string;
+  detail?: string;
+  hint?: string;
   severity: string;
 }
 
@@ -157,8 +160,16 @@ export function ManifestUpload() {
           <ul className="error-list">
             {result.errors.map((err, i) => (
               <li key={i} className="error-item">
-                {err.path && <code className="error-path">{err.path}</code>}
-                <span className="error-message">{err.message}</span>
+                <span className="error-location">
+                  {err.line && <code className="error-line">Line {err.line}</code>}
+                  {err.path && <code className="error-path">{err.path}</code>}
+                </span>
+                <span className="error-message">{err.detail || err.message}</span>
+                {err.hint && (
+                  <div className="error-hint">
+                    <strong>Fix: </strong>{err.hint}
+                  </div>
+                )}
               </li>
             ))}
           </ul>

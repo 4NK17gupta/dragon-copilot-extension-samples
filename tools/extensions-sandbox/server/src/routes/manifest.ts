@@ -8,6 +8,8 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import type { ExtensionManifest } from '../schemas/manifest.schema.js';
 import { sessionStore } from '../store/session.js';
+import { buildDetailedErrors } from '../utils/validation-hints.js';
+import { mapPathsToLines } from '../utils/source-mapper.js';
 
 export const manifestRouter = Router();
 
@@ -30,7 +32,7 @@ const __dirname = dirname(__filename);
 const schemaPath = join(__dirname, '..', 'schemas', 'extension-manifest.json');
 const manifestJsonSchema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
 
-const ajv = new Ajv({ allErrors: true, verbose: true });
+const ajv = new Ajv({ allErrors: true, verbose: true, strict: false });
 addFormats(ajv);
 const validate = ajv.compile(manifestJsonSchema);
 
@@ -73,11 +75,28 @@ manifestRouter.post('/upload', upload.single('manifest'), (req, res) => {
   const isValid = validate(parsed);
 
   if (!isValid) {
-    const errors = (validate.errors ?? []).map((err) => ({
-      path: err.instancePath || '/',
-      message: `${err.instancePath || '/'}: ${err.message}`,
-      severity: 'error' as const,
-    }));
+    const rawErrors = validate.errors ?? [];
+    // Compute precise target paths for line resolution.
+    // For 'required' errors, AJV points to the parent — extend to the missing property.
+    // For 'additionalProperties', extend to the extra property.
+    const targetPaths = rawErrors.map((err) => {
+      const base = err.instancePath || '/';
+      const params = err.params as Record<string, unknown>;
+      if (err.keyword === 'required' && params.missingProperty) {
+        const sep = base === '/' ? '' : '/';
+        return `${base}${sep}${params.missingProperty}`;
+      }
+      if (err.keyword === 'additionalProperties' && params.additionalProperty) {
+        const sep = base === '/' ? '' : '/';
+        return `${base}${sep}${params.additionalProperty}`;
+      }
+      return base;
+    });
+    const lineMap = mapPathsToLines(fileContent, targetPaths);
+    // Remap results back to the original instancePaths for buildDetailedErrors,
+    // but we pass the targetPaths-keyed map directly since buildDetailedErrors
+    // will look up by the same target path.
+    const errors = buildDetailedErrors(rawErrors, lineMap, targetPaths);
 
     res.status(422).json({
       valid: false,
