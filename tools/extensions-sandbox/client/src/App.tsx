@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import { ManifestUpload } from './components/ManifestUpload';
+import { CapabilityList } from './components/CapabilityList';
 import './components/ManifestUpload.css';
+import './components/CapabilityList.css';
 
 function HomePage() {
   const [status, setStatus] = useState<string>('checking...');
@@ -47,16 +49,10 @@ function UploadPage() {
   );
 }
 
-function CapabilitiesPlaceholder() {
+function CapabilitiesPage() {
   return (
     <main className="app-main app-main-single">
-      <div className="info-card">
-        <h2>Capability Explorer</h2>
-        <p>This view will display your extension's capabilities. (Coming soon)</p>
-        <Link to="/upload" className="btn btn-secondary btn-back">
-          ← Back to Upload
-        </Link>
-      </div>
+      <CapabilityList />
     </main>
   );
 }
@@ -76,7 +72,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/upload" element={<UploadPage />} />
-          <Route path="/capabilities" element={<CapabilitiesPlaceholder />} />
+          <Route path="/capabilities" element={<CapabilitiesPage />} />
         </Routes>
       </div>
     </BrowserRouter>

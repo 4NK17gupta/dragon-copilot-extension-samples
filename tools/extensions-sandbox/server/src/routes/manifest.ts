@@ -152,6 +152,39 @@ manifestRouter.get('/', (_req, res) => {
 });
 
 /**
+ * GET /api/manifest/capabilities
+ * Returns parsed capabilities grouped by the tool `capability` field.
+ */
+manifestRouter.get('/capabilities', (_req, res) => {
+  const manifest = sessionStore.getManifest();
+  if (!manifest) {
+    res.status(404).json({ error: 'No manifest loaded. Upload a manifest first.' });
+    return;
+  }
+
+  const capabilityMap = new Map<string, { description: string; toolCount: number }>();
+  for (const tool of manifest.tools) {
+    const existing = capabilityMap.get(tool.capability);
+    if (existing) {
+      existing.toolCount += 1;
+    } else {
+      capabilityMap.set(tool.capability, {
+        description: `${tool.capability.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()).trim()} capability`,
+        toolCount: 1,
+      });
+    }
+  }
+
+  const capabilities = Array.from(capabilityMap.entries()).map(([name, data]) => ({
+    name,
+    description: data.description,
+    toolCount: data.toolCount,
+  }));
+
+  res.json(capabilities);
+});
+
+/**
  * DELETE /api/manifest
  * Clears the current session manifest.
  */
