@@ -53,7 +53,7 @@ function CapabilitiesPlaceholder() {
       <div className="info-card">
         <h2>Capability Explorer</h2>
         <p>This view will display your extension's capabilities. (Coming soon)</p>
-        <Link to="/upload" className="btn btn-secondary" style={{ marginTop: '1rem', display: 'inline-block' }}>
+        <Link to="/upload" className="btn btn-secondary btn-back">
           ← Back to Upload
         </Link>
       </div>

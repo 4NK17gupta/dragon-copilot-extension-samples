@@ -1,8 +1,6 @@
-import { Router } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import multer from 'multer';
+import multer, { MulterError } from 'multer';
 import yaml from 'js-yaml';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
@@ -10,6 +8,7 @@ import type { ExtensionManifest } from '../schemas/manifest.schema.js';
 import { sessionStore } from '../store/session.js';
 import { buildDetailedErrors } from '../utils/validation-hints.js';
 import { mapPathsToLines } from '../utils/source-mapper.js';
+import { MANIFEST_SCHEMA_PATH } from '../utils/schema-path.js';
 
 export const manifestRouter = Router();
 
@@ -27,10 +26,7 @@ const upload = multer({
 });
 
 // Load the Dragon Copilot extension manifest JSON schema
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const schemaPath = join(__dirname, '..', 'schemas', 'extension-manifest.json');
-const manifestJsonSchema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
+const manifestJsonSchema = JSON.parse(readFileSync(MANIFEST_SCHEMA_PATH, 'utf-8'));
 
 const ajv = new Ajv({ allErrors: true, verbose: true, strict: false });
 addFormats(ajv);
@@ -61,12 +57,22 @@ manifestRouter.post('/upload', upload.single('manifest'), (req, res) => {
     } else {
       parsed = yaml.load(fileContent);
     }
-  } catch (err) {
+  } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown parse error';
     res.status(400).json({
       valid: false,
       errors: [{ path: null, message: `Failed to parse file: ${message}`, severity: 'error' }],
       message: 'File could not be parsed as JSON or YAML.',
+    });
+    return;
+  }
+
+  // Ensure parsed content is a plain object (yaml.load can return scalars or arrays)
+  if (parsed === null || parsed === undefined || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    res.status(400).json({
+      valid: false,
+      errors: [{ path: null, message: 'Manifest must be a YAML/JSON object.', severity: 'error' }],
+      message: 'File content is not a valid manifest object.',
     });
     return;
   }
@@ -153,3 +159,35 @@ manifestRouter.delete('/', (_req, res) => {
   sessionStore.clear();
   res.json({ message: 'Manifest cleared.' });
 });
+
+/**
+ * Multer-specific error handling middleware.
+ * Returns 400 with actionable messages for file-size and file-type errors.
+ */
+export function multerErrorHandler(err: Error, _req: Request, res: Response, next: NextFunction): void {
+  if (err instanceof MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      res.status(400).json({
+        valid: false,
+        errors: [{ path: null, message: 'File too large. Maximum size is 1MB.', severity: 'error' }],
+        message: 'File exceeds the maximum allowed size of 1MB.',
+      });
+      return;
+    }
+    res.status(400).json({
+      valid: false,
+      errors: [{ path: null, message: err.message, severity: 'error' }],
+      message: `Upload error: ${err.message}`,
+    });
+    return;
+  }
+  if (err.message && err.message.startsWith('Unsupported file type')) {
+    res.status(400).json({
+      valid: false,
+      errors: [{ path: null, message: err.message, severity: 'error' }],
+      message: err.message,
+    });
+    return;
+  }
+  next(err);
+}

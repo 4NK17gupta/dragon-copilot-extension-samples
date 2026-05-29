@@ -210,3 +210,8 @@
 .btn-secondary:hover {
   background: #edebe9;
 }
+
+.btn-back {
+  margin-top: 1rem;
+  display: inline-block;
+}

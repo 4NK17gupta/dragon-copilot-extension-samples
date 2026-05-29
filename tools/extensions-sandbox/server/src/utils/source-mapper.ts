@@ -128,13 +128,15 @@ function findNthArrayItem(
     }
 
     if (inArray && !trimmed.startsWith('- ')) {
-      // In a JSON-style array, count objects/values by their opening
-      if (trimmed.startsWith('{') || (trimmed.startsWith('"') && !trimmed.includes(':'))) {
+      // In a JSON-style array, count objects/values by their opening.
+        // NOTE: This is a rough heuristic that may miscount items in manifests
+        // with deeply nested arrays or arrays of primitives. Line numbers for
+        // JSON array items are best-effort; YAML source mapping is more reliable.
+        if (trimmed.startsWith('{') || (trimmed.startsWith('"') && !trimmed.includes(':'))) {
         const currentIndent = line.length - line.trimStart().length;
         if (currentIndent > arrayIndent) {
           itemCount++;
           if (itemCount === index) return i;
-          // Skip to end of this object (rough heuristic)
         }
       }
     }
