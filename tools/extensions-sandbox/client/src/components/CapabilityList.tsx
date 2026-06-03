@@ -12,7 +12,6 @@ export function CapabilityList() {
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedCapability, setSelectedCapability] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -36,7 +35,6 @@ export function CapabilityList() {
   }, []);
 
   const handleSelect = (name: string) => {
-    setSelectedCapability(name);
     navigate(`/capabilities/${encodeURIComponent(name)}/tools`);
   };
 
@@ -85,29 +83,22 @@ export function CapabilityList() {
       <p className="capability-description">
         Select a capability to view its associated tools.
       </p>
-      <ul className="capability-items" role="listbox" aria-label="Extension capabilities">
+      <ul className="capability-items" role="list" aria-label="Extension capabilities">
         {capabilities.map((cap) => (
-          <li
-            key={cap.name}
-            className={`capability-card ${selectedCapability === cap.name ? 'capability-card-selected' : ''}`}
-            role="option"
-            aria-selected={selectedCapability === cap.name}
-            tabIndex={0}
-            onClick={() => handleSelect(cap.name)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                handleSelect(cap.name);
-              }
-            }}
-          >
-            <div className="capability-card-header">
-              <span className="capability-name">{cap.name}</span>
-              <span className="capability-tool-count">
-                {cap.toolCount} {cap.toolCount === 1 ? 'tool' : 'tools'}
-              </span>
-            </div>
-            <p className="capability-card-description">{cap.description}</p>
+          <li key={cap.name} className="capability-card" role="listitem">
+            <button
+              type="button"
+              className="capability-card-button"
+              onClick={() => handleSelect(cap.name)}
+            >
+              <div className="capability-card-header">
+                <span className="capability-name">{cap.name}</span>
+                <span className="capability-tool-count">
+                  {cap.toolCount} {cap.toolCount === 1 ? 'tool' : 'tools'}
+                </span>
+              </div>
+              <p className="capability-card-description">{cap.description}</p>
+            </button>
           </li>
         ))}
       </ul>

@@ -8,6 +8,7 @@ import type { ExtensionManifest } from '../schemas/manifest.schema.js';
 import { sessionStore } from '../store/session.js';
 import { buildDetailedErrors } from '../utils/validation-hints.js';
 import { mapPathsToLines } from '../utils/source-mapper.js';
+import { parseCapabilities } from '../utils/capabilities-parser.js';
 import { MANIFEST_SCHEMA_PATH } from '../utils/schema-path.js';
 
 export const manifestRouter = Router();
@@ -162,26 +163,7 @@ manifestRouter.get('/capabilities', (_req, res) => {
     return;
   }
 
-  const capabilityMap = new Map<string, { description: string; toolCount: number }>();
-  for (const tool of manifest.tools) {
-    const existing = capabilityMap.get(tool.capability);
-    if (existing) {
-      existing.toolCount += 1;
-    } else {
-      capabilityMap.set(tool.capability, {
-        description: `${tool.capability.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()).trim()} capability`,
-        toolCount: 1,
-      });
-    }
-  }
-
-  const capabilities = Array.from(capabilityMap.entries()).map(([name, data]) => ({
-    name,
-    description: data.description,
-    toolCount: data.toolCount,
-  }));
-
-  res.json(capabilities);
+  res.json(parseCapabilities(manifest));
 });
 
 /**

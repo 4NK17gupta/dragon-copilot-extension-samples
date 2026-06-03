@@ -57,6 +57,20 @@ function CapabilitiesPage() {
   );
 }
 
+function CapabilityToolsPage() {
+  return (
+    <main className="app-main app-main-single">
+      <div className="info-card">
+        <h2>Capability Tools</h2>
+        <p>Tool listing for this capability is coming soon.</p>
+        <Link to="/capabilities" className="btn btn-secondary btn-back">
+          ← Back to Capabilities
+        </Link>
+      </div>
+    </main>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -73,6 +87,7 @@ function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/upload" element={<UploadPage />} />
           <Route path="/capabilities" element={<CapabilitiesPage />} />
+          <Route path="/capabilities/:name/tools" element={<CapabilityToolsPage />} />
         </Routes>
       </div>
     </BrowserRouter>

@@ -22,9 +22,9 @@
 
 .capability-error {
   padding: 1.5rem;
-  background: #fde7e9;
+  background: var(--color-error-bg, #fde7e9);
   border-radius: 6px;
-  color: #d13438;
+  color: var(--color-error, #d13438);
   text-align: center;
 }
 
@@ -52,11 +52,9 @@
 }
 
 .capability-card {
-  padding: 1rem 1.25rem;
   background: var(--color-surface);
   border: 1px solid #edebe9;
   border-radius: 6px;
-  cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 
@@ -65,15 +63,22 @@
   background: rgba(0, 120, 212, 0.03);
 }
 
-.capability-card:focus {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
+.capability-card-button {
+  display: block;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
 }
 
-.capability-card-selected {
-  border-color: var(--color-primary);
-  background: rgba(0, 120, 212, 0.06);
-  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+.capability-card-button:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .capability-card-header {

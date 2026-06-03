@@ -1,32 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { sessionStore } from '../store/session.js';
+import { parseCapabilities } from '../utils/capabilities-parser.js';
 import type { ExtensionManifest } from '../schemas/manifest.schema.js';
 
 /**
  * Unit tests for the capabilities parsing logic.
  * Tests the grouping algorithm that powers GET /api/manifest/capabilities.
  */
-
-function parseCapabilities(manifest: ExtensionManifest) {
-  const capabilityMap = new Map<string, { description: string; toolCount: number }>();
-  for (const tool of manifest.tools) {
-    const existing = capabilityMap.get(tool.capability);
-    if (existing) {
-      existing.toolCount += 1;
-    } else {
-      capabilityMap.set(tool.capability, {
-        description: `${tool.capability.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()).trim()} capability`,
-        toolCount: 1,
-      });
-    }
-  }
-
-  return Array.from(capabilityMap.entries()).map(([name, data]) => ({
-    name,
-    description: data.description,
-    toolCount: data.toolCount,
-  }));
-}
 
 const baseTool = {
   toolType: 'contractBased' as const,
@@ -122,5 +102,50 @@ describe('Capabilities Parser', () => {
     expect(sessionStore.getManifest()).toBeNull();
     sessionStore.setManifest(manifest);
     expect(sessionStore.getManifest()).toEqual(manifest);
+  });
+
+  it('should handle snake_case capability names', () => {
+    const manifest = {
+      name: 'snake-case-test',
+      description: 'Test',
+      version: '0.0.1',
+      auth: { tenantId: '00000000-0000-0000-0000-000000000000' },
+      tools: [
+        { ...baseTool, name: 'tool-1', capability: 'quality_check', description: 'Quality check' },
+      ],
+    } as unknown as ExtensionManifest;
+
+    const capabilities = parseCapabilities(manifest);
+    expect(capabilities[0].description).toBe('Quality Check capability');
+  });
+
+  it('should handle kebab-case capability names', () => {
+    const manifest = {
+      name: 'kebab-case-test',
+      description: 'Test',
+      version: '0.0.1',
+      auth: { tenantId: '00000000-0000-0000-0000-000000000000' },
+      tools: [
+        { ...baseTool, name: 'tool-1', capability: 'report-generation', description: 'Report' },
+      ],
+    } as unknown as ExtensionManifest;
+
+    const capabilities = parseCapabilities(manifest);
+    expect(capabilities[0].description).toBe('Report Generation capability');
+  });
+
+  it('should handle ALLCAPS capability names', () => {
+    const manifest = {
+      name: 'allcaps-test',
+      description: 'Test',
+      version: '0.0.1',
+      auth: { tenantId: '00000000-0000-0000-0000-000000000000' },
+      tools: [
+        { ...baseTool, name: 'tool-1', capability: 'ALLCAPS', description: 'All caps' },
+      ],
+    } as unknown as ExtensionManifest;
+
+    const capabilities = parseCapabilities(manifest);
+    expect(capabilities[0].description).toBe('ALLCAPS capability');
   });
 });
