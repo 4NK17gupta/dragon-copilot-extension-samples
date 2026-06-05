@@ -1,37 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { sessionStore } from '../store/session.js';
+import { describe, it, expect } from 'vitest';
 import type { ExtensionManifest } from '../schemas/manifest.schema.js';
+import { getToolsForCapability } from '../utils/tool-metadata.js';
 
 /**
- * Unit tests for the tool metadata endpoint logic.
+ * Unit tests for the tool metadata utility.
  * Tests the filtering that powers GET /api/manifest/capabilities/:capabilityName/tools.
  */
-
-function getToolsForCapability(manifest: ExtensionManifest, capabilityName: string) {
-  const allCapabilities = [...new Set(manifest.tools.map((t) => t.capability))];
-
-  if (!allCapabilities.includes(capabilityName as typeof manifest.tools[number]['capability'])) {
-    return null; // indicates 404
-  }
-
-  return manifest.tools
-    .filter((t) => t.capability === capabilityName)
-    .map((t) => ({
-      name: t.name,
-      description: t.description,
-      endpoint: t.endpoint,
-      inputs: t.inputs.map((input) => ({
-        name: input.name,
-        description: input.description,
-        contentType: input['content-type'],
-        required: input.required ?? false,
-      })),
-      outputs: t.outputs.map((output) => ({
-        name: output.name,
-        contentType: output['content-type'],
-      })),
-    }));
-}
 
 const baseTool = {
   toolType: 'contractBased' as const,
@@ -72,10 +46,6 @@ const sampleManifest: ExtensionManifest = {
 };
 
 describe('Tool Metadata - getToolsForCapability', () => {
-  beforeEach(() => {
-    sessionStore.clear();
-  });
-
   it('should return tools for a valid capability', () => {
     const tools = getToolsForCapability(sampleManifest, 'qualityCheck');
 

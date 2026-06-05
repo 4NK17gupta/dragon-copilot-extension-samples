@@ -27,7 +27,6 @@ export function ToolList() {
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTool, setSelectedTool] = useState<string | null>(null);
 
   useEffect(() => {
     if (!capabilityName) return;
@@ -39,7 +38,11 @@ export function ToolList() {
       .then((res) => {
         if (res.status === 404) {
           return res.json().then((data) => {
-            throw new Error(data.error || 'Not found');
+            const msg = data.error || 'Not found';
+            if (msg.includes('No manifest loaded')) {
+              throw new Error('No manifest loaded. Please upload a manifest first.');
+            }
+            throw new Error(msg);
           });
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -57,8 +60,8 @@ export function ToolList() {
   }, [capabilityName]);
 
   const handleSelect = (toolName: string) => {
-    setSelectedTool(toolName);
-    navigate(`/capabilities/${encodeURIComponent(capabilityName!)}/tools/${encodeURIComponent(toolName)}/execute`);
+    if (!capabilityName) return;
+    navigate(`/capabilities/${encodeURIComponent(capabilityName)}/tools/${encodeURIComponent(toolName)}/execute`);
   };
 
   if (loading) {
@@ -78,8 +81,8 @@ export function ToolList() {
         <h2>Tools</h2>
         <div className="tool-error">
           <p>{error}</p>
-          <Link to="/capabilities" className="btn btn-secondary btn-back">
-            ← Back to Capabilities
+          <Link to={error.includes('upload') ? '/upload' : '/capabilities'} className="btn btn-secondary btn-back">
+            {error.includes('upload') ? 'Upload Manifest →' : '← Back to Capabilities'}
           </Link>
         </div>
       </div>
@@ -106,36 +109,29 @@ export function ToolList() {
       <p className="tool-list-description">
         Select a tool to test its execution.
       </p>
-      <ul className="tool-items" role="listbox" aria-label="Capability tools">
+      <ul className="tool-items" role="list" aria-label="Capability tools">
         {tools.map((tool) => (
-          <li
-            key={tool.name}
-            className={`tool-card ${selectedTool === tool.name ? 'tool-card-selected' : ''}`}
-            role="option"
-            aria-selected={selectedTool === tool.name}
-            tabIndex={0}
-            onClick={() => handleSelect(tool.name)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                handleSelect(tool.name);
-              }
-            }}
-          >
-            <div className="tool-card-header">
-              <span className="tool-name">{tool.name}</span>
-              <span className="tool-input-count">
-                {tool.inputs.length} {tool.inputs.length === 1 ? 'input' : 'inputs'}
-              </span>
-            </div>
-            <p className="tool-card-description">{tool.description}</p>
-            <div className="tool-card-meta">
-              {tool.inputs.map((input) => (
-                <span key={input.name} className="tool-input-badge">
-                  {input.name}{input.required ? ' *' : ''}
+          <li key={tool.name} className="tool-card" role="listitem">
+            <button
+              type="button"
+              className="tool-card-button"
+              onClick={() => handleSelect(tool.name)}
+            >
+              <div className="tool-card-header">
+                <span className="tool-name">{tool.name}</span>
+                <span className="tool-input-count">
+                  {tool.inputs.length} {tool.inputs.length === 1 ? 'input' : 'inputs'}
                 </span>
-              ))}
-            </div>
+              </div>
+              <p className="tool-card-description">{tool.description}</p>
+              <div className="tool-card-meta">
+                {tool.inputs.map((input) => (
+                  <span key={input.name} className="tool-input-badge">
+                    {input.name}{input.required ? ' *' : ''}
+                  </span>
+                ))}
+              </div>
+            </button>
           </li>
         ))}
       </ul>

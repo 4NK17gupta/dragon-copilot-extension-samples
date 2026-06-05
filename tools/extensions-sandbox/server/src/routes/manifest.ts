@@ -8,6 +8,7 @@ import type { ExtensionManifest } from '../schemas/manifest.schema.js';
 import { sessionStore } from '../store/session.js';
 import { buildDetailedErrors } from '../utils/validation-hints.js';
 import { mapPathsToLines } from '../utils/source-mapper.js';
+import { getToolsForCapability } from '../utils/tool-metadata.js';
 import { parseCapabilities } from '../utils/capabilities-parser.js';
 import { MANIFEST_SCHEMA_PATH } from '../utils/schema-path.js';
 
@@ -178,30 +179,12 @@ manifestRouter.get('/capabilities/:capabilityName/tools', (req, res) => {
   }
 
   const { capabilityName } = req.params;
-  const allCapabilities = [...new Set(manifest.tools.map((t) => t.capability))];
+  const tools = getToolsForCapability(manifest, capabilityName);
 
-  if (!allCapabilities.includes(capabilityName as typeof manifest.tools[number]['capability'])) {
-    res.status(404).json({ error: `Capability '${capabilityName}' not found in manifest.` });
+  if (tools === null) {
+    res.status(404).json({ error: 'Capability not found in manifest.' });
     return;
   }
-
-  const tools = manifest.tools
-    .filter((t) => t.capability === capabilityName)
-    .map((t) => ({
-      name: t.name,
-      description: t.description,
-      endpoint: t.endpoint,
-      inputs: t.inputs.map((input) => ({
-        name: input.name,
-        description: input.description,
-        contentType: input['content-type'],
-        required: input.required ?? false,
-      })),
-      outputs: t.outputs.map((output) => ({
-        name: output.name,
-        contentType: output['content-type'],
-      })),
-    }));
 
   res.json(tools);
 });
