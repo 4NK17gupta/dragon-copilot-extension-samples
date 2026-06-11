@@ -214,6 +214,13 @@ function getPatternHint(path: string, pattern: string, _schemaPath: string): { d
     };
   }
 
+  if (pattern.includes('[a-zA-Z0-9]') && pattern.startsWith('^[a-z]')) {
+    return {
+      detail: `The value at '${path}' does not match the required camelCase format.`,
+      hint: `Use camelCase: start with a lowercase letter, followed by letters and numbers (e.g., "myExtensionName"). No spaces, hyphens, or special characters.`,
+    };
+  }
+
   if (pattern.includes('\\d+\\.\\d+\\.\\d+')) {
     return {
       detail: `The value at '${path}' is not a valid semantic version.`,

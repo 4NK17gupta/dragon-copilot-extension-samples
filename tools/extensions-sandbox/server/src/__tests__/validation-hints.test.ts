@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { buildDetailedErrors } from '../utils/validation-hints.js';
+import { MANIFEST_SCHEMA_PATH } from '../utils/schema-path.js';
 
-const schemaPath = resolve(__dirname, '..', 'schemas', 'extension-manifest.json');
-const manifestJsonSchema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
+const manifestJsonSchema = JSON.parse(readFileSync(MANIFEST_SCHEMA_PATH, 'utf-8'));
 
 const ajv = new Ajv({ allErrors: true, verbose: true, strict: false });
 addFormats(ajv);
@@ -115,8 +114,8 @@ describe('buildDetailedErrors', () => {
 
     const nameErr = errors.find((e) => e.path === '/name');
     expect(nameErr).toBeDefined();
-    expect(nameErr!.hint).toContain('lowercase');
-    expect(nameErr!.hint).toContain('hyphens');
+    expect(nameErr!.hint).toContain('camelCase');
+    expect(nameErr!.hint).toContain('lowercase letter');
 
     const versionErr = errors.find((e) => e.path === '/version');
     expect(versionErr).toBeDefined();

@@ -226,7 +226,7 @@ describe('Schema Validation Engine', () => {
 
   // ─── Additional properties ─────────────────────────────────────────────
 
-  it('should fail when unexpected properties are present', () => {
+  it('should allow additional top-level properties (schema is open)', () => {
     loadTestManifest();
     const payload = {
       recommendations: [
@@ -236,10 +236,7 @@ describe('Schema Validation Engine', () => {
     };
 
     const result = validateToolResponse('chest-ct-quality', payload);
-    expect(result.valid).toBe(false);
-    const extraCheck = result.checks.find((c) => c.error?.includes('totallyUnexpected'));
-    expect(extraCheck).toBeDefined();
-    expect(extraCheck!.error).toContain('Unexpected property');
+    expect(result.valid).toBe(true);
   });
 
   // ─── Null / edge cases ─────────────────────────────────────────────────
