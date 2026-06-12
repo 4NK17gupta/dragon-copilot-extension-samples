@@ -34,6 +34,7 @@ describe('buildDetailedErrors', () => {
       name: 'test',
       description: 'Test',
       version: '1.0.0',
+      radiologyExtensibilityApiVersion: '0.1.0',
       auth: { tenantId: '12345678-1234-1234-1234-123456789abc' },
       tools: [{ name: 'my-tool', description: 'A tool' }],
     };
@@ -46,7 +47,7 @@ describe('buildDetailedErrors', () => {
 
     const capabilityError = errors.find((e) => e.detail.includes("'capability'"));
     expect(capabilityError).toBeDefined();
-    expect(capabilityError!.hint).toContain('reportGeneration');
+    expect(capabilityError!.hint).toContain('qualityCheck');
   });
 
   it('should provide hints for invalid enum values', () => {
@@ -54,6 +55,7 @@ describe('buildDetailedErrors', () => {
       name: 'test',
       description: 'Test',
       version: '1.0.0',
+      radiologyExtensibilityApiVersion: '0.1.0',
       auth: { tenantId: '12345678-1234-1234-1234-123456789abc' },
       tools: [
         {
@@ -63,10 +65,10 @@ describe('buildDetailedErrors', () => {
           description: 'A tool',
           endpoint: 'https://api.example.com/v1/process',
           inputs: [
-            { name: 'note', description: 'Note', 'content-type': 'application/json' },
+            { name: 'note', description: 'Note', 'content-type': 'application/json', schemaVersion: '0.1' },
           ],
           outputs: [
-            { name: 'result', description: 'Result', 'content-type': 'text/plain' },
+            { name: 'result', description: 'Result', 'content-type': 'text/plain', schemaVersion: '0.1' },
           ],
         },
       ],
@@ -84,7 +86,7 @@ describe('buildDetailedErrors', () => {
 
     const contentTypeErr = errors.find((e) => e.path.includes('content-type') && e.path.includes('inputs'));
     expect(contentTypeErr).toBeDefined();
-    expect(contentTypeErr!.hint).toContain('application/vnd.ms-dragon.dsp.rad');
+    expect(contentTypeErr!.hint).toContain('application/vnd.ms-dragon.rad');
   });
 
   it('should provide hints for pattern validation failures', () => {
@@ -92,6 +94,7 @@ describe('buildDetailedErrors', () => {
       name: 'Invalid Name!',
       description: 'Test',
       version: 'abc',
+      radiologyExtensibilityApiVersion: '0.1.0',
       auth: { tenantId: 'not-a-guid' },
       tools: [
         {
@@ -101,10 +104,10 @@ describe('buildDetailedErrors', () => {
           description: 'A tool',
           endpoint: 'https://api.example.com/v1/process',
           inputs: [
-            { name: 'report', description: 'Report', 'content-type': 'application/vnd.ms-dragon.dsp.rad.report+json' },
+            { name: 'report', description: 'Report', 'content-type': 'application/vnd.ms-dragon.rad.report+json', schemaVersion: '0.1' },
           ],
           outputs: [
-            { name: 'result', description: 'Result', 'content-type': 'application/vnd.ms-dragon.dsp.rad.quality-result+json' },
+            { name: 'result', description: 'Result', 'content-type': 'application/vnd.ms-dragon.rad.quality-check-result+json', schemaVersion: '0.1' },
           ],
         },
       ],
@@ -131,6 +134,7 @@ describe('buildDetailedErrors', () => {
       name: 'test',
       description: 'Test',
       version: '1.0.0',
+      radiologyExtensibilityApiVersion: '0.1.0',
       auth: { tenantId: '12345678-1234-1234-1234-123456789abc' },
       tools: [
         {
@@ -140,10 +144,10 @@ describe('buildDetailedErrors', () => {
           description: 'A tool',
           endpoint: 'not-a-url',
           inputs: [
-            { name: 'report', description: 'Report', 'content-type': 'application/vnd.ms-dragon.dsp.rad.report+json' },
+            { name: 'report', description: 'Report', 'content-type': 'application/vnd.ms-dragon.rad.report+json', schemaVersion: '0.1' },
           ],
           outputs: [
-            { name: 'result', description: 'Result', 'content-type': 'application/vnd.ms-dragon.dsp.rad.quality-result+json' },
+            { name: 'result', description: 'Result', 'content-type': 'application/vnd.ms-dragon.rad.quality-check-result+json', schemaVersion: '0.1' },
           ],
         },
       ],

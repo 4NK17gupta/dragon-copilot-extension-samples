@@ -131,13 +131,16 @@ export function ManifestEditor({ onManifestLoaded, onReset }: ManifestEditorProp
       return;
     }
 
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
         const response = await fetch('/api/manifest/validate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: manifestText }),
+          signal: controller.signal,
         });
+        if (controller.signal.aborted) return;
         const data = await response.json();
 
         if (data.valid) {
@@ -150,14 +153,15 @@ export function ManifestEditor({ onManifestLoaded, onReset }: ManifestEditorProp
           setValidationMessage(data.message);
           setErrors(data.errors || []);
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         setIsValid(false);
         setValidationMessage('Network error: could not reach the server.');
         setErrors([{ path: null, message: 'Network error', severity: 'error' }]);
       }
     }, 800);
 
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); controller.abort(); };
   }, [manifestText, onManifestLoaded]);
 
   const lines = manifestText.split('\n');
