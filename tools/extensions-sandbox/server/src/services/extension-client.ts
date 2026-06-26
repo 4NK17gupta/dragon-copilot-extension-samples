@@ -140,8 +140,11 @@ export async function callExtensionAsync(
     `tool='${tool.name}', inputs=[${Object.keys(parsedInputs).join(', ') || 'none'}], ` +
     `bodySize=${requestBody.length} bytes`,
   );
-  log.info(`Request body: ${requestBody}`);
-  log.info(`Reproduce with curl:\n${buildCurlCommand(tool.endpoint, headers, requestBody)}`);
+  // The raw request body and reproducible curl command can contain
+  // clinical/PHI-shaped input values, so they are only emitted at debug level
+  // (set LOG_LEVEL=debug). They are never logged during normal runs.
+  log.debug(`Request body: ${requestBody}`);
+  log.debug(`Reproduce with curl:\n${buildCurlCommand(tool.endpoint, headers, requestBody)}`);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -163,7 +166,7 @@ export async function callExtensionAsync(
       `Response ${response.status} ${response.statusText} in ${durationMs}ms ` +
       `(content-type: ${contentType || 'unknown'})`,
     );
-    log.info(`Response headers: ${JSON.stringify(responseHeaders)}`);
+    log.info(`Response headers: ${JSON.stringify(redactHeaders(responseHeaders))}`);
 
     let rawBody: unknown;
     if (contentType.includes('application/json')) {
@@ -202,13 +205,27 @@ export async function callExtensionAsync(
 }
 
 /**
- * Returns a shallow copy of headers with the Authorization value redacted,
- * so bearer tokens are never written to the console.
+ * Header names whose values must never be written to the console, matched
+ * case-insensitively. Covers request auth as well as sensitive headers that
+ * may appear on extension responses (e.g. Set-Cookie).
+ */
+const SENSITIVE_HEADERS = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'set-cookie',
+]);
+
+/**
+ * Returns a shallow copy of headers with any sensitive values redacted,
+ * so bearer tokens, cookies, and similar secrets are never written to the
+ * console. Matching is case-insensitive and applies to both request and
+ * response headers.
  */
 function redactHeaders(headers: Record<string, string>): Record<string, string> {
-  const redacted = { ...headers };
-  if (redacted['Authorization']) {
-    redacted['Authorization'] = 'Bearer ***redacted***';
+  const redacted: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    redacted[name] = SENSITIVE_HEADERS.has(name.toLowerCase()) ? '***redacted***' : value;
   }
   return redacted;
 }

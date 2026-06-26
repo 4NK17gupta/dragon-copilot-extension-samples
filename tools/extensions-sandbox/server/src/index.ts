@@ -30,6 +30,8 @@ app.use('/api/manifest', manifestRouter);
 app.use('/api/validate', validateRouter);
 app.use('/api/auth', authRouter);
 
+const ROUTES = ['/api/health', '/api/manifest', '/api/validate', '/api/auth'];
+
 // Handle multer-specific errors with user-friendly messages
 app.use('/api/manifest', multerErrorHandler);
 
@@ -41,5 +43,5 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 app.listen(PORT, () => {
   console.log(`[sandbox-server] listening on http://localhost:${PORT}`);
-  console.log('[sandbox-server] routes: /api/health, /api/manifest, /api/validate');
+  console.log(`[sandbox-server] routes: ${ROUTES.join(', ')}`);
 });
