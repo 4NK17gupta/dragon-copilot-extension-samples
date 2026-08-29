@@ -78,8 +78,17 @@ interface GenerateRequestBody {
 /** Request-shape problem, reported before any manifest is assembled. */
 class BadRequestError extends Error {}
 
+/**
+ * Reads a trimmed string from untrusted input.
+ *
+ * A field that is absent, non-string, or blank all mean the same thing here —
+ * "the caller did not supply this" — so all three yield `fallback`. That matches
+ * the CLI, where submitting an empty prompt accepts the offered default, and
+ * keeps the two surfaces emitting the same manifest for the same answers.
+ */
 function asString(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value.trim() : fallback;
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed || fallback;
 }
 
 function asStringArray(value: unknown): string[] {
@@ -140,9 +149,22 @@ cliRouter.post('/generate', (req, res) => {
   try {
     manifest = mode === 'custom' ? buildCustomManifest(body) : buildTemplateManifest(body);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    log.warn(`Generate rejected: ${message}`);
-    res.status(400).json({
+    // Only a BadRequestError describes something the caller can fix, so only its
+    // message is safe to echo back. Anything else is a fault on our side: report
+    // it as a 500 and keep the internal detail in the server log.
+    if (err instanceof BadRequestError) {
+      log.warn(`Generate rejected: ${err.message}`);
+      res.status(400).json({
+        generated: false,
+        errors: [{ path: null, message: err.message, severity: 'error' }],
+        message: err.message,
+      });
+      return;
+    }
+
+    log.error(`Generate failed unexpectedly: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+    const message = 'Manifest generation failed unexpectedly. Check the sandbox server log for details.';
+    res.status(500).json({
       generated: false,
       errors: [{ path: null, message, severity: 'error' }],
       message,
@@ -193,14 +215,21 @@ cliRouter.post('/generate', (req, res) => {
  */
 function buildTemplateManifest(body: GenerateRequestBody): DcrExtensionManifest {
   const template = asString(body.template);
+  const available = listTemplateSummaries().map((summary) => summary.id);
+
   if (!template) {
-    const available = listTemplateSummaries().map((summary) => summary.id).join(', ');
-    throw new BadRequestError(`A template is required. Available templates: ${available}.`);
+    throw new BadRequestError(`A template is required. Available templates: ${available.join(', ')}.`);
+  }
+
+  // Checked here rather than letting `buildManifestFromTemplate` throw, so that
+  // an unknown name is a typed 400 and anything else escaping the manifest core
+  // is treated as the unexpected fault it is.
+  if (!available.includes(template)) {
+    throw new BadRequestError(`Template '${template}' not found. Available templates: ${available.join(', ')}.`);
   }
 
   const tenantId = requireTenantId(body);
 
-  // Surfaces the CLI's own "template not found" message, which lists the valid names.
   return buildManifestFromTemplate(template, { tenantId });
 }
 
@@ -220,6 +249,9 @@ function buildCustomManifest(body: GenerateRequestBody): DcrExtensionManifest {
   if (outputs.length === 0) {
     throw new BadRequestError('At least one output is required for the tool.');
   }
+  if (outputs.some((output) => !output || typeof output !== 'object')) {
+    throw new BadRequestError('Each output must be an object with a name and description.');
+  }
 
   const toolInput: ToolInput = {
     name: asString(tool.name),
@@ -229,7 +261,7 @@ function buildCustomManifest(body: GenerateRequestBody): DcrExtensionManifest {
     outputs: outputs.map((output) => ({
       name: asString(output.name),
       description: asString(output.description),
-      schemaVersion: asString(output.schemaVersion) || MANIFEST_DEFAULTS.schemaVersion,
+      schemaVersion: asString(output.schemaVersion, MANIFEST_DEFAULTS.schemaVersion),
     })),
   };
 

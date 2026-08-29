@@ -257,6 +257,39 @@ describe('POST /api/cli/generate (custom mode)', () => {
     expect(status).toBe(400);
     expect(body.message).toContain('output is required');
   });
+
+  it('falls back to the CLI defaults for fields the caller left blank', async () => {
+    const { status, body } = await generate(
+      customRequest({
+        extension: { name: 'myRadiologistsExtension', description: '', version: '', radiologistsExtensibilityApiVersion: '' },
+        tool: { ...customRequest().tool, outputs: [{ name: 'qualityCheckResult', description: 'Quality check result', schemaVersion: '' }] },
+      }),
+    );
+
+    expect(status).toBe(200);
+    expect(body.valid).toBe(true);
+
+    // A blank field means "not supplied", exactly as submitting an empty CLI
+    // prompt accepts the offered default.
+    const manifest = yaml.load(body.yaml) as ExtensionManifest;
+    expect(manifest.description).toBe('A Dragon Copilot radiologists extension');
+    expect(manifest.version).toBe('0.0.1');
+    expect(manifest.radiologistsExtensibilityApiVersion).toBe('1.0.0');
+    expect(manifest.tools[0].outputs[0].schemaVersion).toBe('1.0');
+  });
+
+  it('rejects a malformed output entry without leaking an internal error', async () => {
+    const { status, body } = await generate(
+      customRequest({ tool: { ...customRequest().tool, outputs: [null] } }),
+    );
+
+    expect(status).toBe(400);
+    expect(body.generated).toBe(false);
+    expect(body.message).toContain('Each output must be an object');
+    // A TypeError message here would mean an internal fault was reported as a
+    // client error with implementation detail attached.
+    expect(body.message).not.toContain('Cannot read properties');
+  });
 });
 
 describe('POST /api/cli/generate (unsupported domain)', () => {

@@ -9,6 +9,10 @@
  *
  * Only `js-yaml` may be imported from here; adding a CLI-only dependency
  * (chalk, @inquirer/prompts, fs-extra, …) would break the sandbox build.
+ *
+ * Language level: this folder is compiled twice — by the CLI (`lib: ["es2020"]`)
+ * and by the sandbox server (ES2022). Stick to ES2020 APIs, or the CLI build
+ * fails while the sandbox build stays green.
  */
 export * from './types.js';
 export * from './choices.js';

@@ -88,7 +88,11 @@ export function getTemplate(templateName: string): TemplateConfig {
   // Own-property check: a bare lookup would resolve inherited keys such as
   // '__proto__' or 'constructor' and slip past the guard below. The name can
   // come straight from a request body (the Extensions Sandbox wizard).
-  const template = Object.hasOwn(templates, templateName) ? templates[templateName] : undefined;
+  // `hasOwnProperty.call` rather than `Object.hasOwn`: this core compiles under
+  // the CLI's ES2020 lib as well as the sandbox's ES2022 one — see `./index.ts`.
+  const template = Object.prototype.hasOwnProperty.call(templates, templateName)
+    ? templates[templateName]
+    : undefined;
   if (!template) {
     throw new Error(`Template '${templateName}' not found. Available templates: ${Object.keys(templates).join(', ')}`);
   }

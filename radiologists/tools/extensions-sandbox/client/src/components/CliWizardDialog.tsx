@@ -201,12 +201,25 @@ export function CliWizardDialog({ open, onOpenChange, onGenerated }: CliWizardDi
     }
   }, [buildRequestBody, onGenerated, onOpenChange]);
 
+  // Gate on every field the form marks `required`, so the button's enabled state
+  // matches what the form asks for. Blank values would otherwise reach the server
+  // and come back as a 422 (or be quietly replaced by a default) instead of being
+  // caught while the user is still looking at the field.
+  const hasRequiredCustomFields =
+    extensionName.trim() &&
+    extensionDescription.trim() &&
+    version.trim() &&
+    apiVersion.trim() &&
+    toolName.trim() &&
+    toolDescription.trim() &&
+    endpoint.trim() &&
+    inputTypes.length > 0 &&
+    outputName.trim() &&
+    outputDescription.trim() &&
+    schemaVersion.trim();
+
   const canGenerate = Boolean(
-    options &&
-    tenantId.trim() &&
-    (mode === 'template'
-      ? template
-      : extensionName.trim() && toolName.trim() && endpoint.trim() && inputTypes.length > 0 && outputName.trim()),
+    options && tenantId.trim() && (mode === 'template' ? template : hasRequiredCustomFields),
   );
 
   return (

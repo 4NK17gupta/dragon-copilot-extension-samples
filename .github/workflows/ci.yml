@@ -163,6 +163,9 @@ jobs:
     # The sandbox consumes two contracts and the manifest-generation code from
     # tools/dragon-copilot-cli, syncing them in at build/test time. Building and
     # testing it here is what catches a CLI-side change that breaks that sync.
+    # `npm test` / `npm run build` also typecheck the synced core against the
+    # CLI's stricter ES2020 baseline, so this job cannot go green on code the
+    # CLI would fail to compile.
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

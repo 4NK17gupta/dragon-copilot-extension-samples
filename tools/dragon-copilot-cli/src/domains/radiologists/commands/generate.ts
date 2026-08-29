@@ -9,6 +9,7 @@ import {
   buildManifest,
   buildManifestFromTemplate,
   buildTool,
+  getTemplate,
   renderManifestYaml
 } from '../manifest/index.js';
 import { promptToolDetails, promptAuthDetails } from '../shared/prompts.js';
@@ -94,6 +95,10 @@ async function generateFromTemplate(options: GenerateOptions): Promise<void> {
   }
 
   try {
+    // Resolved before prompting: a mistyped --template should not cost the user
+    // a tenant ID they then have to re-enter.
+    getTemplate(options.template);
+
     console.log(chalk.blue('\n Authentication Configuration'));
     console.log(chalk.gray('Manifest requires authentication configuration.\n'));
     const authDetails = await promptAuthDetails();

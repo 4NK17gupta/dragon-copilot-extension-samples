@@ -248,6 +248,11 @@ export function ManifestEditor({ onManifestLoaded, onManifestEditing, onReset }:
     if (!content.trim()) return;
 
     setIsValidating(true);
+    // Clear the whole previous verdict, not just the errors: leaving isValid set
+    // would show the old manifest's badge over content that has not been checked
+    // yet — visible when the CLI wizard swaps in a new manifest mid-flight.
+    setIsValid(null);
+    setValidationMessage('');
     setErrors([]);
 
     try {
