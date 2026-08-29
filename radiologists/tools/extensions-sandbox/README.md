@@ -6,7 +6,7 @@ A local development environment for testing and validating Microsoft Dragon Copi
 
 **Who it's for**: partners building radiology extensions.
 
-**Where it fits**: author your manifest with `tools/dragon-copilot-cli`, run your extension (or one of the samples in `radiologists/src/samples/Workflow`), then load the manifest here to test.
+**Where it fits**: author your manifest with `tools/dragon-copilot-cli` — or generate one without leaving the sandbox via the **Dragon Copilot CLI** button in the Manifest Editor — run your extension (or one of the samples in `radiologists/src/samples/Workflow`), then load the manifest here to test.
 
 ## Prerequisites
 
@@ -31,6 +31,21 @@ Open `http://localhost:3000` in your browser.
 `npm run dev` starts both the frontend (Vite dev server on port 3000) and the backend (Express on port 4000) concurrently, with hot-reload. The frontend proxies API calls to the backend automatically, so port 3000 is the only URL you need.
 
 > The Express server binds to `127.0.0.1` and is reachable only from the local machine.
+
+### Creating a manifest with the CLI wizard
+
+If you don't have a manifest yet, click **Dragon Copilot CLI** in the Manifest Editor toolbar. The
+dialog asks the same questions as `dragon-copilot radiologists init`, either starting from a built-in
+template (`quality-check`) or from your own values — extension name, tenant, tool endpoint, input data
+types, output, and optional relevance filtering by body part and modality.
+
+**Generate manifest** posts the answers to `POST /api/cli/generate`, where the CLI's own manifest code
+assembles the YAML; the result is loaded into the editor and validated immediately, so you can go
+straight to testing. If the answers produce a manifest the schema rejects (for example a name that
+isn't camelCase), the YAML is still loaded and the errors are shown against their line numbers.
+
+The CLI is invoked as a library, not as a binary — you don't need `dragon-copilot` installed to use
+the wizard.
 
 ### Production build
 
@@ -96,9 +111,12 @@ extensions-sandbox/
 └── server/               # Express backend
     ├── scripts/
     │   ├── generate-output-schemas.ts  # Generates JSON Schemas from OpenAPI spec
-    │   └── sync-schemas.ts             # Syncs the manifest schema and OpenAPI spec from their owners
+    │   └── sync-schemas.ts             # Syncs the manifest schema, OpenAPI spec, and CLI manifest core from their owners
     ├── src/
     │   ├── index.ts      # Server entry point
+    │   ├── cli/
+    │   │   ├── README.md               # Why this folder is synced, not authored here
+    │   │   └── radiologists/           # CLI manifest core, synced from the CLI (git-ignored)
     │   ├── schemas/
     │   │   ├── radiologists/
     │   │   │   ├── radiologists-extension-manifest-schema.json  # Synced from the CLI (git-ignored)
@@ -109,8 +127,10 @@ extensions-sandbox/
     │   │   │   └── report.json
     │   │   └── manifest.schema.ts      # TypeScript types for manifests
     │   ├── routes/
+    │   │   ├── cli.ts                  # Manifest generation with the CLI's own code
     │   │   └── manifest.ts
     │   ├── services/
+    │   │   ├── manifest-schema.ts      # Shared manifest schema validation + error shaping
     │   │   └── validation.ts
     │   ├── utils/
     │   │   └── schema-path.ts          # Central path resolution for schemas
@@ -129,14 +149,15 @@ npm run generate-schemas
 
 The generation script (`scripts/generate-output-schemas.ts`) extracts the `PatientInformation`, `Report`, and `QualityCheckResult` schema definitions (and everything they reference, e.g. `Recommendation`, `Provenance`) from the OpenAPI YAML and produces standalone JSON Schema files. `patient-information.json` and `report.json` are used to validate and describe tool *inputs*; `quality-check-result.json` is used to validate extension *responses*.
 
-> **Note:** The sandbox owns neither contract it validates against. Both are synced into
-> `src/schemas/radiologists/` at dev/build/test time by `scripts/sync-schemas.ts`, and both local
+> **Note:** The sandbox owns neither contract it validates against, nor the code behind the CLI
+> wizard. All three are synced in at dev/build/test time by `scripts/sync-schemas.ts`, and the local
 > copies are git-ignored so the upstream copy stays the single source of truth:
-> the manifest schema (`radiologists-extension-manifest-schema.json`) is owned by the
-> `tools/dragon-copilot-cli` package, and the OpenAPI spec (`radiologists-extensibility-api.yaml`)
-> is owned by `radiologists/`. `src/__tests__/schema-sync.test.ts` fails if either copy drifts from
-> its source. The OpenAPI spec will be replaced with an internal package reference once
-> `diag-radex-extension-service` publishes its authoritative version.
+> the manifest schema (`radiologists-extension-manifest-schema.json`) and the manifest core
+> (`src/cli/radiologists/`) are owned by the `tools/dragon-copilot-cli` package, and the OpenAPI spec
+> (`radiologists-extensibility-api.yaml`) is owned by `radiologists/`.
+> `src/__tests__/schema-sync.test.ts` fails if any copy drifts from its source. The OpenAPI spec will
+> be replaced with an internal package reference once `diag-radex-extension-service` publishes its
+> authoritative version.
 
 ## API Endpoints
 
@@ -186,14 +207,31 @@ Input and response validation return `200` when valid and `422` when the payload
 | POST   | /api/auth/config | Update auth config (secret write-only)                  |
 | POST   | /api/auth/test   | Acquire a token and validate claims (no extension call) |
 
+### CLI
+
+| Method | Path              | Description                                                          |
+|--------|-------------------|----------------------------------------------------------------------|
+| GET    | /api/cli/options  | Templates, selectable values, and field defaults the wizard renders   |
+| POST   | /api/cli/generate | Generate a manifest from a template or wizard answers, returned as YAML |
+
+`POST /api/cli/generate` takes `mode: "template"` (with a `template` id) or `mode: "custom"` (with
+`extension` and `tool` objects), plus the `tenantId` in both cases. It returns `200` with the
+generated `yaml`, `400` when the request itself is unusable (no tenant, unknown template, no tool),
+and `422` when the generated manifest fails schema validation — in which case the `yaml` is still
+returned alongside the errors so the editor can show them in context.
+
+Generation runs the manifest core owned by `tools/dragon-copilot-cli` in-process (synced into
+`src/cli/radiologists/`); the CLI binary is never spawned, and it does not need to be installed.
+
 ## Architecture
 
 The sandbox reproduces, locally, the path a request takes through the Dragon Copilot Extension
 Runtime — so that a manifest which works here works when deployed.
 
-1. **Load the manifest.** A manifest is uploaded (`POST /api/manifest/upload`) or pasted
-   (`POST /api/manifest/validate`). YAML and JSON are both accepted and normalized to the same
-   object.
+1. **Load the manifest.** A manifest is uploaded (`POST /api/manifest/upload`), pasted
+   (`POST /api/manifest/validate`), or generated by the CLI wizard (`POST /api/cli/generate`, which
+   runs the CLI's own manifest code in-process). YAML and JSON are both accepted and normalized to
+   the same object.
 2. **Validate against the contract.** The manifest is checked against the JSON Schema owned by
    `tools/dragon-copilot-cli` — the same schema the CLI enforces — so the sandbox cannot accept a
    manifest the platform would reject. Errors are mapped back to line/column positions in the
@@ -394,4 +432,3 @@ Then enable authentication in the UI with **Tenant ID** `11111111-1111-1111-1111
 
 - Dragon Copilot preview pane for extension results
 - Sample scenario picker & sample data packs
-- Dragon Copilot CLI integration with the manifest editor
