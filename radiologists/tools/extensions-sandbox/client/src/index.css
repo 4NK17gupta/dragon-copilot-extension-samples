@@ -142,6 +142,53 @@ body {
   margin-bottom: 1rem;
 }
 
+/* Dragon Copilot CLI wizard dialog */
+.cli-wizard-surface {
+  max-width: 640px;
+}
+
+.cli-wizard-intro {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+  margin: 0 0 12px;
+}
+
+.cli-wizard-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.cli-wizard-section {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.cli-wizard-hint {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+  margin: -8px 0 0;
+}
+
+.cli-wizard-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.cli-wizard-checkboxes {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Manifest label */
 .manifest-label {
   font-size: 12px;
