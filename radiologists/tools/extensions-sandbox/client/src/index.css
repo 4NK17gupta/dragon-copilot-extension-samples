@@ -363,6 +363,22 @@ body {
   margin-top: 1rem;
 }
 
+.partner-listener-status {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+}
+
+.partner-listener-status p {
+  margin: 0.75rem 0;
+}
+
+.partner-listener-status code {
+  overflow-wrap: anywhere;
+}
+
 .execute-error {
   margin-top: 1rem;
   padding: 0.75rem 1rem;
@@ -1042,4 +1058,3 @@ body {
 .claim-fail {
   color: #a4262c;
 }
-

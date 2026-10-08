@@ -1,0 +1,25 @@
+{
+  "name": "sampleRadiologyExtension",
+  "description": "Sample partner-initiated pre-draft radiology report extension",
+  "version": "1.0.0",
+  "radiologistsExtensibilityApiVersion": "1.0.0",
+  "auth": {
+    "tenantId": "00000000-0000-0000-0000-000000000000"
+  },
+  "tools": [
+    {
+      "name": "preDraftReportGeneratorTool",
+      "toolType": "partnerInitiated",
+      "capability": "preDraftReportGeneration",
+      "description": "Tool to generate a pre-draft radiology report",
+      "outputs": [
+        {
+          "name": "preDraftReportResult",
+          "description": "Pre-draft radiology report",
+          "content-type": "application/vnd.ms-dragon.rad.pre-draft-report+json",
+          "schemaVersion": "1.0"
+        }
+      ]
+    }
+  ]
+}

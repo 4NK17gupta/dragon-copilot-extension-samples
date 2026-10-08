@@ -1,13 +1,15 @@
 /**
  * Sync externally-owned sources into the sandbox.
  *
- * The sandbox validates against two contracts it does not own, and generates
+ * The sandbox validates against contracts it does not own, and generates
  * manifests with code it does not own:
  *
  * - `radiologists-extension-manifest-schema.json` — owned by `tools/dragon-copilot-cli`.
  * - `radiologists-extensibility-api.yaml` — owned by `radiologists/` (the copy the
  *   radiology samples are built against); the response and input schemas under
  *   `src/schemas/generated-schemas/` are derived from it.
+ * - `pre-draft-report-schema.json` — owned by `radiologists/partner-initiated/`;
+ *   validates the raw output of partner-initiated tools.
  * - `src/cli/radiologists/` — the Dragon Copilot CLI's pure manifest core
  *   (`tools/dragon-copilot-cli/src/domains/radiologists/manifest/`), which backs
  *   the `/api/cli/generate` endpoint so the sandbox wizard and `dragon-copilot
@@ -53,6 +55,10 @@ const SYNC_TARGETS: SyncTarget[] = [
     // server/scripts -> radiologists/radiologists-extensibility-api.yaml
     source: resolve(__dirname, '..', '..', '..', '..', 'radiologists-extensibility-api.yaml'),
     owner: 'radiologists/',
+  },
+  {
+    source: resolve(REPO_ROOT, 'radiologists', 'partner-initiated', 'pre-draft-report-schema.json'),
+    owner: 'radiologists/partner-initiated/',
   },
 ];
 

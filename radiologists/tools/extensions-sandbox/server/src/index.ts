@@ -6,6 +6,7 @@ import { validateRouter } from './routes/validate.js';
 import { authRouter } from './routes/auth.js';
 import { cliRouter } from './routes/cli.js';
 import { createLogger } from './utils/logger.js';
+import { partnerInitiatedCallbackRouter } from './routes/partner-initiated.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -14,6 +15,7 @@ const httpLog = createLogger('http');
 const serverLog = createLogger('server');
 
 app.use(cors({ origin: 'http://localhost:3000' }));
+app.use('/api/partnerInitiated', partnerInitiatedCallbackRouter);
 app.use(express.json());
 
 // Request logging middleware: logs each incoming request and its response
@@ -36,7 +38,7 @@ app.use('/api/validate', validateRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/cli', cliRouter);
 
-const ROUTES = ['/api/health', '/api/manifest', '/api/validate', '/api/auth', '/api/cli'];
+const ROUTES = ['/api/health', '/api/manifest', '/api/partnerInitiated', '/api/validate', '/api/auth', '/api/cli'];
 
 // Handle multer-specific errors with user-friendly messages
 app.use('/api/manifest', multerErrorHandler);

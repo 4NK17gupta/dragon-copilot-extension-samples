@@ -85,6 +85,19 @@ describe('OpenAPI spec sync', () => {
     expect(existsSync(OPENAPI_SPEC_PATH)).toBe(true);
   });
 
+  describe('Partner output schema sync', () => {
+    it('packages the authoritative pre-draft schema, including its version', () => {
+      const authoritative = JSON.parse(readFileSync(resolve(
+        __dirname, '..', '..', '..', '..', '..', 'partner-initiated', 'pre-draft-report-schema.json',
+      ), 'utf-8'));
+      const synced = JSON.parse(readFileSync(resolve(
+        __dirname, '..', 'schemas', 'radiologists', 'pre-draft-report-schema.json',
+      ), 'utf-8'));
+      expect(synced).toEqual(authoritative);
+      expect(synced['x-ms-schema-version']).toBe('1.0');
+    });
+  });
+
   it('matches the radiologists authoritative source (no drift)', () => {
     expect(existsSync(RADIOLOGISTS_SPEC_PATH)).toBe(true);
 

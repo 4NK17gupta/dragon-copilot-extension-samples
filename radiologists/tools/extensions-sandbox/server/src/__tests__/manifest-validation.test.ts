@@ -14,8 +14,69 @@ const validate = ajv.compile(manifestJsonSchema);
 const fixturesDir = resolve(__dirname, 'fixtures');
 const validManifestSimple = JSON.parse(readFileSync(resolve(fixturesDir, 'valid-manifest-simple.json'), 'utf-8'));
 const validManifestFullFeatured = JSON.parse(readFileSync(resolve(fixturesDir, 'valid-manifest-full-featured.json'), 'utf-8'));
+const validManifestPartnerInitiated = JSON.parse(readFileSync(resolve(fixturesDir, 'valid-manifest-partner-initiated.json'), 'utf-8'));
+
+function buildPartnerInitiatedManifest() {
+  return structuredClone(validManifestPartnerInitiated);
+}
 
 describe('Manifest Schema Validation', () => {
+  it('accepts a partnerInitiated tool without an endpoint or inputs', () => {
+    expect(validate(buildPartnerInitiatedManifest())).toBe(true);
+    expect(validate.errors).toBeNull();
+  });
+
+  it('accepts contractBased and partnerInitiated tools in the same manifest', () => {
+    const manifest = buildPartnerInitiatedManifest();
+    manifest.tools.push(...validManifestSimple.tools);
+    expect(validate(manifest)).toBe(true);
+  });
+
+  it.each(['endpoint', 'inputs'])('still requires %s for contractBased tools', (field) => {
+    const manifest = structuredClone(validManifestSimple);
+    delete manifest.tools[0][field];
+    expect(validate(manifest)).toBe(false);
+    expect(validate.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ keyword: 'required', params: { missingProperty: field } }),
+    ]));
+  });
+
+  it.each(['toolType', 'capability', 'outputs'])('requires %s for partnerInitiated tools', (field) => {
+    const manifest = buildPartnerInitiatedManifest();
+    delete manifest.tools[0][field];
+    expect(validate(manifest)).toBe(false);
+  });
+
+  it('rejects an empty partnerInitiated output list', () => {
+    const manifest = buildPartnerInitiatedManifest();
+    manifest.tools[0].outputs = [];
+    expect(validate(manifest)).toBe(false);
+  });
+
+  it('rejects qualityCheck capability for partnerInitiated tools', () => {
+    const manifest = buildPartnerInitiatedManifest();
+    manifest.tools[0].capability = 'qualityCheck';
+    expect(validate(manifest)).toBe(false);
+  });
+
+  it('rejects quality-check output for partnerInitiated tools', () => {
+    const manifest = buildPartnerInitiatedManifest();
+    manifest.tools[0].outputs[0]['content-type'] = 'application/vnd.ms-dragon.rad.quality-check-result+json';
+    expect(validate(manifest)).toBe(false);
+  });
+
+  it('rejects pre-draft capability and output for contractBased tools', () => {
+    const manifest = buildPartnerInitiatedManifest();
+    manifest.tools[0] = { ...validManifestSimple.tools[0], ...manifest.tools[0], toolType: 'contractBased' };
+    expect(validate(manifest)).toBe(false);
+  });
+
+  it('keeps the pre-draft ingest request out of manifest inputs', () => {
+    const manifest = structuredClone(validManifestSimple);
+    manifest.tools[0].inputs[0]['content-type'] = 'application/vnd.ms-dragon.rad.pre-draft-report-ingest-request+json';
+    expect(validate(manifest)).toBe(false);
+  });
+
   it('should validate a conforming radiology extension manifest as valid', () => {
     const isValid = validate(validManifestSimple);
 

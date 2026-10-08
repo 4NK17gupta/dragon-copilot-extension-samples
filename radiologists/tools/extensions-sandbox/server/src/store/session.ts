@@ -2,6 +2,7 @@ import type { ExtensionManifest } from '../schemas/manifest.schema.js';
 import type { ValidationResult } from '../services/validation.js';
 import type { AuthConfig, SafeAuthConfig } from '../services/auth.js';
 import { EXTENSION_RUNTIME_CLIENT_ID } from '../services/auth.js';
+import { PartnerRunStore } from './partner-run.js';
 
 /**
  * In-memory global store for the sandbox.
@@ -13,6 +14,7 @@ import { EXTENSION_RUNTIME_CLIENT_ID } from '../services/auth.js';
  * support is ever needed, state must be keyed by a session identifier.
  */
 class SessionStore {
+  readonly partnerRuns = new PartnerRunStore();
   private manifest: ExtensionManifest | null = null;
   private rawManifestText: string | null = null;
   private validationResults: ValidationResult[] = [];
@@ -30,6 +32,7 @@ class SessionStore {
   };
 
   setManifest(manifest: ExtensionManifest, rawText?: string): void {
+    this.partnerRuns.clear();
     this.manifest = manifest;
     this.rawManifestText = rawText ?? null;
     // Clear stale validation results when a new manifest is loaded
@@ -93,6 +96,7 @@ class SessionStore {
   }
 
   clear(): void {
+    this.partnerRuns.clear();
     this.manifest = null;
     this.rawManifestText = null;
     this.validationResults = [];

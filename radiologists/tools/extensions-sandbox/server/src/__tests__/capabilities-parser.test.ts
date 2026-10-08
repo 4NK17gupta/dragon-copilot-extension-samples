@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { sessionStore } from '../store/session.js';
 import { parseCapabilities } from '../utils/capabilities-parser.js';
 import type { ExtensionManifest } from '../schemas/manifest.schema.js';
@@ -31,6 +32,20 @@ const baseTool = {
 };
 
 describe('Capabilities Parser', () => {
+  it('labels pre-draft report generation and counts every supporting tool', () => {
+    const manifest: ExtensionManifest = JSON.parse(readFileSync(
+      new URL('./fixtures/valid-manifest-partner-initiated.json', import.meta.url), 'utf-8',
+    ));
+    manifest.tools.push({ ...manifest.tools[0], name: 'secondPreDraftTool' });
+
+    expect(parseCapabilities(manifest)).toEqual([{
+      name: 'preDraftReportGeneration',
+      displayName: 'Pre Draft Report Generation',
+      description: 'Pre Draft Report Generation capability',
+      toolCount: 2,
+    }]);
+  });
+
   beforeEach(() => {
     sessionStore.clear();
   });
