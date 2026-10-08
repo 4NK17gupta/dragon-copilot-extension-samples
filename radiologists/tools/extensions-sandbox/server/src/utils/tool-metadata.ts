@@ -3,8 +3,9 @@ import { getInputSchemaForContentType } from '../services/validation.js';
 
 export interface ToolMetadata {
   name: string;
+  toolType: ExtensionManifest['tools'][number]['toolType'];
   description: string;
-  endpoint: string;
+  endpoint?: string;
   inputs: {
     name: string;
     description: string;
@@ -38,9 +39,10 @@ export function getToolsForCapability(manifest: ExtensionManifest, capabilityNam
     .filter((t) => t.capability === capabilityName)
     .map((t) => ({
       name: t.name,
+      toolType: t.toolType,
       description: t.description,
       endpoint: t.endpoint,
-      inputs: t.inputs.map((input) => ({
+      inputs: (t.inputs ?? []).map((input) => ({
         name: input.name,
         description: input.description,
         contentType: input['content-type'],

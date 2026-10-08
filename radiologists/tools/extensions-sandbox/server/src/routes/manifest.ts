@@ -10,8 +10,10 @@ import { validateToolInputs, validateToolResponse } from '../services/validation
 import { describeManifest, summarizeManifest, validateManifestDocument } from '../services/manifest-schema.js';
 import { parseAndGroupInputs } from 'extensions-sandbox-shared';
 import { createLogger } from '../utils/logger.js';
+import { partnerInitiatedRunRouter } from './partner-initiated.js';
 
 export const manifestRouter = Router();
+manifestRouter.use('/partner-initiated', partnerInitiatedRunRouter);
 
 const log = createLogger('manifest');
 

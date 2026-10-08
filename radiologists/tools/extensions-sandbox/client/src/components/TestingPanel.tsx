@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useId } from 'react';
 import {
   Button,
   Dropdown,
@@ -13,6 +13,8 @@ import { DynamicForm, getFieldPaths, SchemaProperty } from './DynamicForm';
 import type { DynamicFormHandle } from './DynamicForm';
 import { AuthSettings } from './AuthSettings';
 import { DragonCopilotPreview } from './DragonCopilotPreview';
+import { usePartnerInitiatedTest } from '../hooks/usePartnerInitiatedTest';
+import type { ExecuteResult, PartnerInitiatedResult, ValidationResult } from '../types/testing';
 import './ValidationResults.css';
 
 interface ToolInput {
@@ -33,8 +35,9 @@ interface ToolOutput {
 
 interface Tool {
   name: string;
+  toolType: 'contractBased' | 'partnerInitiated';
   description: string;
-  endpoint: string;
+  endpoint?: string;
   inputs: ToolInput[];
   outputs: ToolOutput[];
 }
@@ -55,37 +58,12 @@ interface ManifestInfo {
   capabilities: string[];
 }
 
-interface ExecuteResult {
-  status: number;
-  statusText: string;
-  headers?: Record<string, string>;
-  processResponse?: { success?: boolean; message?: string; payload?: Record<string, unknown> } | null;
-  rawBody?: unknown;
-  sentRequest?: unknown;
-}
-
 interface ExecuteErrorDetails {
   message: string;
   endpoint?: string;
   cause?: string;
   troubleshooting?: string[];
   sentRequest?: unknown;
-}
-
-interface ValidationCheck {
-  check: string;
-  passed: boolean;
-  path?: string;
-  error?: string;
-}
-
-interface ValidationResult {
-  valid: boolean;
-  toolName: string;
-  outputContentType: string;
-  checks: ValidationCheck[];
-  summary: { passed: number; failed: number };
-  timestamp: string;
 }
 
 interface InputValidationCheck {
@@ -109,6 +87,8 @@ interface TestingPanelProps {
 }
 
 export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelProps) {
+  const capabilityId = useId();
+  const toolId = useId();
   const [activeTab, setActiveTab] = useState<string>('setup');
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [selectedCapability, setSelectedCapability] = useState<string>('');
@@ -123,7 +103,29 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   const [expandedChecks, setExpandedChecks] = useState<Set<number>>(new Set());
   const [copyToast, setCopyToast] = useState(false);
   const [inputValidationErrors, setInputValidationErrors] = useState<InputValidationError[] | null>(null);
+  const [receivedUrl, setReceivedUrl] = useState<string | null>(null);
   const formRef = useRef<DynamicFormHandle>(null);
+
+  const handlePartnerResult = useCallback((data: PartnerInitiatedResult, elapsedMs: number, url: string) => {
+    setResult(data);
+    setValidationResult(data.validation);
+    setExecutionTimeMs(elapsedMs);
+    setReceivedUrl(url);
+    setExpandedChecks(new Set(data.validation.checks
+      .map((check, index) => !check.passed && check.error ? index : -1)
+      .filter((index) => index >= 0)));
+    setActiveTab('results');
+  }, []);
+
+  const partnerTest = usePartnerInitiatedTest({
+    manifestInfo, manifestRevision, capability: selectedCapability, toolName: selectedTool,
+    onComplete: handlePartnerResult,
+  });
+  const { start: startPartnerTest, cancel: cancelPartnerTest } = partnerTest;
+
+  useEffect(() => {
+    setReceivedUrl(null);
+  }, [manifestInfo, manifestRevision, selectedCapability, selectedTool]);
 
   // Load capabilities when manifest is loaded
   useEffect(() => {
@@ -178,21 +180,24 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
   // Load tools when capability or manifest changes
   useEffect(() => {
-    if (!selectedCapability) {
-      setTools([]);
-      setSelectedTool('');
+    setTools([]);
+    setSelectedTool('');
+    if (!selectedCapability || !manifestInfo) {
       return;
     }
 
+    let cancelled = false;
     fetch(`/api/manifest/capabilities/${encodeURIComponent(selectedCapability)}/tools`)
       .then((res) => res.ok ? res.json() : [])
       .then((data: Tool[]) => {
+        if (cancelled) return;
         setTools(data);
-        if (data.length > 0) {
-          setSelectedTool(data[0].name);
-        }
+        setSelectedTool(data[0]?.name ?? '');
       })
-      .catch(() => setTools([]));
+      .catch(() => {
+        if (!cancelled) setTools([]);
+      });
+    return () => { cancelled = true; };
   }, [selectedCapability, manifestInfo]);
 
   // Reset input values when tool changes
@@ -214,6 +219,8 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   }, []);
 
   const handleResetInputs = useCallback(() => {
+    void cancelPartnerTest();
+    setReceivedUrl(null);
     if (currentTool) {
       const defaults: Record<string, string> = {};
       for (const path of getFieldPaths(currentTool.inputs)) {
@@ -226,10 +233,22 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     setExecuteError(null);
     setExpandedChecks(new Set());
     setInputValidationErrors(null);
-  }, [currentTool]);
+  }, [currentTool, cancelPartnerTest]);
 
   const handleRunTest = useCallback(async () => {
     if (!selectedCapability || !selectedTool) return;
+
+    if (currentTool?.toolType === 'partnerInitiated') {
+      setResult(null);
+      setValidationResult(null);
+      setExecuteError(null);
+      setExpandedChecks(new Set());
+      setInputValidationErrors(null);
+      setReceivedUrl(null);
+      setActiveTab('setup');
+      await startPartnerTest();
+      return;
+    }
 
     // Validate form before executing
     if (formRef.current && !formRef.current.validate()) {
@@ -323,7 +342,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     } finally {
       setIsExecuting(false);
     }
-  }, [selectedCapability, selectedTool, inputValues]);
+  }, [selectedCapability, selectedTool, inputValues, currentTool, startPartnerTest]);
 
   const toggleCheck = useCallback((index: number) => {
     setExpandedChecks((prev) => {
@@ -391,6 +410,25 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
         <Tab value="preview">Dragon Copilot Preview</Tab>
       </TabList>
 
+      {partnerTest.isActive && (
+        <div className="partner-listener-status" role="status" aria-live="polite">
+          <Spinner size="small" label={
+            partnerTest.phase === 'starting' ? 'Starting listener...' :
+              partnerTest.phase === 'stopping' ? 'Stopping listener...' : 'Waiting for request...'
+          } />
+          {partnerTest.callbackUrl && (
+            <>
+              <p>Waiting for a POST request on <code>{partnerTest.callbackUrl}</code></p>
+              <p>Send the raw output payload as JSON, without an ingest envelope.</p>
+            </>
+          )}
+          <Button onClick={() => { void cancelPartnerTest(); }} disabled={partnerTest.phase === 'stopping'}>
+            Cancel Listening
+          </Button>
+        </div>
+      )}
+      {partnerTest.error && <div className="execute-error" role="alert">{partnerTest.error}</div>}
+
       <div className="tab-content">
         {activeTab === 'setup' && (
           <div className="setup-tab">
@@ -399,8 +437,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
             </div>
 
             <div className="form-field">
-              <label className="field-label">Capability</label>
+              <label className="field-label" htmlFor={capabilityId}>Capability</label>
               <Dropdown
+                id={capabilityId}
                 value={selectedCapabilityEntry ? selectedCapabilityLabel : ''}
                 selectedOptions={[selectedCapability]}
                 onOptionSelect={(_, data) => {
@@ -418,8 +457,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
             </div>
 
             <div className="form-field">
-              <label className="field-label">Tool</label>
+              <label className="field-label" htmlFor={toolId}>Tool</label>
               <Dropdown
+                id={toolId}
                 value={tools.find(t => t.name === selectedTool)?.name || ''}
                 selectedOptions={[selectedTool]}
                 onOptionSelect={(_, data) => {
@@ -439,12 +479,14 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
               )}
             </div>
 
-            <div className="form-field">
-              <label className="field-label">Authentication</label>
-              <AuthSettings />
-            </div>
+            {currentTool?.toolType !== 'partnerInitiated' && (
+              <div className="form-field">
+                <label className="field-label">Authentication</label>
+                <AuthSettings />
+              </div>
+            )}
 
-            {currentTool && (
+            {currentTool && currentTool.toolType !== 'partnerInitiated' && (
               <DynamicForm
                 ref={formRef}
                 inputs={currentTool.inputs}
@@ -458,7 +500,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                 appearance="primary"
                 icon={<CodeRegular />}
                 onClick={handleRunTest}
-                disabled={isExecuting}
+                disabled={isExecuting || partnerTest.isActive}
               >
                 {isExecuting ? 'Running...' : 'Run Test'}
               </Button>
@@ -533,7 +575,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                       <div className="tool-context-value">{selectedTool}</div>
                     </div>
                     <div>
-                      <div className="tool-context-label">Execution Time</div>
+                      <div className="tool-context-label">{receivedUrl ? 'Wait and Validation Time' : 'Execution Time'}</div>
                       <div className="tool-context-value">{executionTimeMs} ms</div>
                     </div>
                     {result && (
@@ -561,7 +603,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                     {/* Summary */}
                     <p className="validation-summary">
                       {validationResult.valid
-                        ? `All ${validationResult.summary.passed} checks passed — response matches the expected schema.`
+                        ? `All ${validationResult.summary.passed} checks passed — ${receivedUrl ? 'request body' : 'response'} matches the expected schema.`
                         : `${validationResult.summary.failed} of ${validationResult.summary.passed + validationResult.summary.failed} checks failed — ${validationResult.checks.filter(c => !c.passed).map(c => c.error || c.check).join('; ')}`}
                     </p>
 
@@ -648,7 +690,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                     appearance="primary"
                     icon={<CodeRegular />}
                     onClick={handleRunTest}
-                    disabled={isExecuting}
+                    disabled={isExecuting || partnerTest.isActive}
                   >
                     Re-run Execution
                   </Button>
@@ -681,7 +723,15 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
         {activeTab === 'outputs' && (
           <div className="outputs-tab">
-            {result && currentTool ? (
+            {result && receivedUrl ? (
+              <div className="outputs-display">
+                <h3 className="outputs-section-title">Received Request Payload</h3>
+                <div className="request-method-badge">POST {receivedUrl}</div>
+                <pre className="dark-code-block">
+                  {result.rawBody === undefined ? 'No request body' : JSON.stringify(result.rawBody, null, 2)}
+                </pre>
+              </div>
+            ) : result && currentTool ? (
               <div className="outputs-display">
                 <h3 className="outputs-section-title">Request Payload</h3>
                 <div className="request-method-badge">POST {currentTool.endpoint}</div>
