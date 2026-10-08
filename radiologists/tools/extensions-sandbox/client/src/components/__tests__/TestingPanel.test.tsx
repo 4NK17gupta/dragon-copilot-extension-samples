@@ -1,7 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { TestingPanel } from '../TestingPanel';
+
+// Isolate selection logic from Fluent UI's browser-only popup and focus behavior.
+vi.mock('@fluentui/react-components', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@fluentui/react-components')>(),
+  Dropdown: ({ id, selectedOptions, onOptionSelect, children }: {
+    id?: string;
+    selectedOptions: string[];
+    onOptionSelect: (event: unknown, data: { optionValue: string }) => void;
+    children: ReactNode;
+  }) => (
+    <select
+      id={id}
+      value={selectedOptions[0] ?? ''}
+      onChange={(event) => onOptionSelect(event, { optionValue: event.currentTarget.value })}
+    >
+      {children}
+    </select>
+  ),
+  Option: ({ value, children }: { value: string; children: ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
+}));
 
 const manifestInfo = {
   name: 'sample-extension',
@@ -10,7 +35,7 @@ const manifestInfo = {
   capabilities: ['reportQuality'],
 };
 
-let fetchMock: ReturnType<typeof vi.fn>;
+let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 
 function json(body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -20,16 +45,18 @@ function json(body: unknown) {
 }
 
 /**
- * Renders the panel and waits for both mount fetches to settle, so the state
+ * Renders the panel and waits for manifest metadata fetches to settle, so the state
  * updates they trigger happen inside `act` rather than during an assertion.
  */
-async function renderPanel() {
+async function renderPanel(info = manifestInfo) {
   render(
     <FluentProvider theme={webLightTheme}>
-      <TestingPanel manifestInfo={manifestInfo} manifestRevision={0} />
+      <TestingPanel manifestInfo={info} manifestRevision={0} />
     </FluentProvider>,
   );
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(fetchMock.mock.calls.filter(
+    ([url]) => String(url).startsWith('/api/manifest/capabilities'),
+  )).toHaveLength(2));
   await act(async () => {});
 }
 
@@ -45,6 +72,96 @@ beforeEach(() => {
     return json({});
   });
   vi.stubGlobal('fetch', fetchMock);
+});
+
+describe('TestingPanel pre-draft tool selection', () => {
+  const fixture = JSON.parse(readFileSync(
+    resolve(__dirname, '../../../../server/src/__tests__/fixtures/valid-manifest-partner-initiated.json'),
+    'utf-8',
+  ));
+  const preDraftTools = [
+    { name: fixture.tools[0].name, description: fixture.tools[0].description, inputs: [], outputs: [] },
+    { name: 'secondPreDraftTool', description: 'Another pre-draft generator', inputs: [], outputs: [] },
+  ];
+  const capabilities = [
+    { name: 'qualityCheck', displayName: 'Report Optimization', toolCount: 1 },
+    { name: 'preDraftReportGeneration', displayName: 'Pre Draft Report Generation', toolCount: 2 },
+  ];
+  const info = { ...manifestInfo, toolCount: 3, capabilities: capabilities.map((cap) => cap.name) };
+
+  beforeEach(() => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/manifest/capabilities')) return json(capabilities);
+      if (url.endsWith('/preDraftReportGeneration/tools')) return json(preDraftTools);
+      if (url.endsWith('/qualityCheck/tools')) {
+        return json([{ name: 'qualityCheckTool', description: 'Quality check', inputs: [], outputs: [] }]);
+      }
+      return json({});
+    });
+  });
+
+  it('lists only tools supporting Pre Draft Report Generation and allows selecting any of them', async () => {
+    await renderPanel(info);
+    expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue('qualityCheckTool');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Capability' }), {
+      target: { value: 'preDraftReportGeneration' },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue(preDraftTools[0].name),
+    );
+
+    expect(within(screen.getByRole('combobox', { name: 'Tool' })).getAllByRole('option').map((option) => option.textContent)).toEqual(
+      preDraftTools.map((tool) => tool.name),
+    );
+    expect(screen.queryByRole('option', { name: 'qualityCheckTool' })).toBeNull();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Tool' }), { target: { value: 'secondPreDraftTool' } });
+    expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue('secondPreDraftTool');
+    expect(screen.getByText('Another pre-draft generator')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Capability' }), { target: { value: 'qualityCheck' } });
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue('qualityCheckTool'),
+    );
+  });
+
+  it('selects the fixture tool for a manifest with only pre-draft report generation', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/manifest/capabilities')) return json([capabilities[1]]);
+      if (url.endsWith('/preDraftReportGeneration/tools')) return json([preDraftTools[0]]);
+      return json({});
+    });
+    await renderPanel({ ...info, toolCount: 1, capabilities: ['preDraftReportGeneration'] });
+
+    expect(screen.getByRole('combobox', { name: 'Capability' })).toHaveDisplayValue('Pre Draft Report Generation');
+    expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue(fixture.tools[0].name);
+  });
+
+  it('ignores stale tool responses after switching capability', async () => {
+    let resolvePreDraft!: (response: Response) => void;
+    const pendingPreDraft = new Promise<Response>((resolve) => { resolvePreDraft = resolve; });
+    const normalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL) =>
+      String(input).endsWith('/preDraftReportGeneration/tools') ? pendingPreDraft : normalFetch(input),
+    );
+    await renderPanel(info);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Capability' }), {
+      target: { value: 'preDraftReportGeneration' },
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/manifest/capabilities/preDraftReportGeneration/tools'));
+    expect(screen.getByRole('combobox', { name: 'Tool' })).not.toHaveValue('qualityCheckTool');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Capability' }), { target: { value: 'qualityCheck' } });
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue('qualityCheckTool'),
+    );
+    await act(async () => { resolvePreDraft(json(preDraftTools)); });
+
+    expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue('qualityCheckTool');
+  });
 });
 
 afterEach(() => {

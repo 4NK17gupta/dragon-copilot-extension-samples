@@ -41,8 +41,8 @@ export function getToolsForCapability(manifest: ExtensionManifest, capabilityNam
     .filter((t) => t.capability === capabilityName)
     .map((t) => ({
       name: t.name,
-      description: t.description,
       toolType: t.toolType,
+      description: t.description,
       endpoint: t.endpoint,
       inputs: (t.inputs ?? []).map((input) => ({
         name: input.name,
