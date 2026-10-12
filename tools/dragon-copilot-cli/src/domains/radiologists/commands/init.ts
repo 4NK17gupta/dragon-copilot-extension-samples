@@ -18,6 +18,7 @@ import {
   promptToolDetails,
   promptAuthDetails
 } from '../shared/prompts.js';
+import type { ToolDetails } from '../shared/prompts.js';
 
 export async function initProject(options: InitOptions): Promise<void> {
     console.log(chalk.blue('?? Dragon Copilot Radiologists Extension Generator'));
@@ -55,8 +56,9 @@ export async function initProject(options: InitOptions): Promise<void> {
     tools: []
   });
 
+  let toolDetails: ToolDetails | undefined;
   if (addTool) {
-    const toolDetails = await promptToolDetails(undefined, {
+    toolDetails = await promptToolDetails(undefined, {
       allowMultipleInputs: true,
       defaults: {
         toolName: MANIFEST_DEFAULTS.toolName,
@@ -87,7 +89,16 @@ export async function initProject(options: InitOptions): Promise<void> {
 
     console.log(chalk.blue('\n What\'s Next?'));
 
-  if (addTool) {
+  if (toolDetails?.toolType === 'partnerInitiated') {
+      console.log(chalk.yellow('Development Steps:'));
+    console.log(chalk.gray('   1. Customize outputs as needed (partnerInitiated tools declare no endpoint or inputs)'));
+    console.log(chalk.gray('   2. Submit draft reports through the partner-initiated API (see radiologists/partner-initiated)'));
+    console.log(chalk.gray('   3. Test your extension locally'));
+
+    console.log(chalk.yellow('\n Deployment Steps:'));
+    console.log(chalk.gray('   1. Package your extension: dragon-copilot radiologists package'));
+    console.log(chalk.gray('   2. Deploy to the marketplace'));
+  } else if (toolDetails) {
       console.log(chalk.yellow('Development Steps:'));
     console.log(chalk.gray('   1. Update the endpoint URL with your actual API'));
     console.log(chalk.gray('   2. Customize inputs and outputs as needed'));

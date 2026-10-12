@@ -12,7 +12,10 @@ import {
   DEFAULT_OUTPUT_CONTENT_TYPE,
   DEFAULT_PAYLOAD_SCHEMA_VERSION,
   DEFAULT_TOOL_TYPE,
+  DRAFT_REPORT_CONTENT_TYPE,
+  PARTNER_INITIATED_TOOL_TYPE,
   PATIENT_INFORMATION_CONTENT_TYPE,
+  PRE_DRAFT_REPORT_GENERATION_CAPABILITY,
   REPORT_CONTENT_TYPE,
   getInputDescription,
 } from './choices.js';
@@ -52,6 +55,33 @@ const templates: Record<string, TemplateConfig> = {
             schemaVersion: DEFAULT_PAYLOAD_SCHEMA_VERSION
           }
         ],
+        relevanceFilteringCriteria: {
+          relevantBodyParts: ['CHEST'],
+          relevantModalities: ['CT']
+        }
+      }
+    ]
+  },
+  'pre-draft-report': {
+    name: 'sampleRadiologyExtension',
+    description: 'Extension to provide pre-draft radiology report generation',
+    version: '0.0.1',
+    radiologistsExtensibilityApiVersion: '1.0.0',
+    tools: [
+      {
+        name: 'preDraftReportGeneratorTool',
+        toolType: PARTNER_INITIATED_TOOL_TYPE,
+        capability: PRE_DRAFT_REPORT_GENERATION_CAPABILITY,
+        description: 'Tool to generate a pre-draft radiology report',
+        outputs: [
+          {
+            name: 'preDraftReportResult',
+            description: 'Pre-draft radiology report',
+            'content-type': DRAFT_REPORT_CONTENT_TYPE,
+            schemaVersion: DEFAULT_PAYLOAD_SCHEMA_VERSION
+          }
+        ],
+        // Declarative for partnerInitiated tools; not currently enforced.
         relevanceFilteringCriteria: {
           relevantBodyParts: ['CHEST'],
           relevantModalities: ['CT']

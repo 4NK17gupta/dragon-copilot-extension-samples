@@ -8,12 +8,15 @@ import type {
 } from '../types.js';
 import {
   BODY_PART_CHOICES,
+  CAPABILITY_BY_TOOL_TYPE,
   CAPABILITY_CHOICES,
   DEFAULT_OUTPUT_CONTENT_TYPE,
+  DEFAULT_TOOL_TYPE,
   INPUT_TYPE_CHOICES,
   MANIFEST_DEFAULTS,
   MODALITY_CHOICES,
   TOOL_TYPE_CHOICES,
+  getDefaultOutputContentType,
   getInputDescription,
   getInputName
 } from '../manifest/index.js';
@@ -44,8 +47,10 @@ export interface ToolDetails {
   toolDescription: string;
   toolType: ToolType;
   capability: Capability;
-  endpoint: string;
-  inputTypes: string[];
+  /** Set only for contractBased tools. */
+  endpoint?: string | undefined;
+  /** Set only for contractBased tools. */
+  inputTypes?: string[] | undefined;
   outputs: DcrOutput[];
   relevanceFilteringCriteria?: RelevanceFilteringCriteria | undefined;
 }
@@ -187,33 +192,38 @@ export async function promptToolDetails(
   const toolType = await select({
     message: 'Tool type:',
     choices: TOOL_TYPE_CHOICES,
-    default: 'contractBased'
+    default: DEFAULT_TOOL_TYPE
   });
 
-  const capability = await select({
-    message: 'Capability:',
-    choices: CAPABILITY_CHOICES
-  });
+  // Each tool type delivers exactly one capability, so derive it instead of prompting.
+  const capability = CAPABILITY_BY_TOOL_TYPE[toolType];
+  const capabilityLabel = CAPABILITY_CHOICES.find((choice) => choice.value === capability)?.name ?? capability;
+  console.log(`Capability: ${capabilityLabel} (determined by tool type)`);
 
-  const endpoint = await input({
-    message: 'API endpoint:',
-    ...(defaults.endpoint ? { default: defaults.endpoint } : {}),
-    validate: validateUrl
-  });
+  // partnerInitiated tools are never called by Dragon Copilot, so they declare no endpoint or inputs.
+  let endpoint: string | undefined;
+  let inputTypes: string[] | undefined;
+  if (toolType === 'contractBased') {
+    endpoint = await input({
+      message: 'API endpoint:',
+      ...(defaults.endpoint ? { default: defaults.endpoint } : {}),
+      validate: validateUrl
+    });
 
-  const inputTypes = await checkbox({
-    message: allowMultipleInputs ? 'Select input data types:' : 'Select primary input data type:',
-    choices: INPUT_TYPE_CHOICES,
-    validate: (choices) => {
-      if (choices.length === 0) return 'Please select at least one input type';
-      if (!allowMultipleInputs && choices.length > 1) {
-        return 'Please select only one input type';
+    inputTypes = await checkbox({
+      message: allowMultipleInputs ? 'Select input data types:' : 'Select primary input data type:',
+      choices: INPUT_TYPE_CHOICES,
+      validate: (choices) => {
+        if (choices.length === 0) return 'Please select at least one input type';
+        if (!allowMultipleInputs && choices.length > 1) {
+          return 'Please select only one input type';
+        }
+        return true;
       }
-      return true;
-    }
-  });
+    });
+  }
 
-  const outputs = await promptOutputs();
+  const outputs = await promptOutputs(getDefaultOutputContentType(toolType));
 
   // Optionally prompt for relevance filtering criteria
   const addFiltering = await confirm({
@@ -232,7 +242,10 @@ export async function promptToolDetails(
 /**
  * Prompts for output details
  */
-export async function promptOutputDetails(defaults?: { name?: string; description?: string; schemaVersion?: string }): Promise<DcrOutput> {
+export async function promptOutputDetails(
+  defaults?: { name?: string; description?: string; schemaVersion?: string },
+  contentType: string = DEFAULT_OUTPUT_CONTENT_TYPE
+): Promise<DcrOutput> {
   const name = await input({
     message: 'Output name:',
     default: defaults?.name || MANIFEST_DEFAULTS.outputName
@@ -251,7 +264,7 @@ export async function promptOutputDetails(defaults?: { name?: string; descriptio
   return {
     name,
     description,
-    'content-type': DEFAULT_OUTPUT_CONTENT_TYPE,
+    'content-type': contentType,
     schemaVersion
   };
 }
@@ -295,12 +308,12 @@ export async function promptRelevanceFilteringCriteria(): Promise<RelevanceFilte
 /**
  * Prompts for multiple outputs
  */
-export async function promptOutputs(): Promise<DcrOutput[]> {
+export async function promptOutputs(contentType: string = DEFAULT_OUTPUT_CONTENT_TYPE): Promise<DcrOutput[]> {
   const outputs: DcrOutput[] = [];
 
   console.log('\n Configuring outputs for your tool...');
 
-  const firstOutput = await promptOutputDetails();
+  const firstOutput = await promptOutputDetails(undefined, contentType);
   outputs.push(firstOutput);
 
   let addMoreOutputs = await confirm({
@@ -309,7 +322,7 @@ export async function promptOutputs(): Promise<DcrOutput[]> {
   });
 
   while (addMoreOutputs) {
-    const additionalOutput = await promptOutputDetails();
+    const additionalOutput = await promptOutputDetails(undefined, contentType);
     outputs.push(additionalOutput);
 
     addMoreOutputs = await confirm({

@@ -34,7 +34,9 @@ interface ToolOutput {
 interface Tool {
   name: string;
   description: string;
-  endpoint: string;
+  toolType?: 'contractBased' | 'partnerInitiated';
+  /** Absent for partnerInitiated tools, which Dragon Copilot never calls. */
+  endpoint?: string;
   inputs: ToolInput[];
   outputs: ToolOutput[];
 }
@@ -208,6 +210,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   }, [selectedTool, tools]);
 
   const currentTool = tools.find((t) => t.name === selectedTool);
+  const isPartnerInitiated = currentTool?.toolType === 'partnerInitiated';
 
   const handleInputChange = useCallback((name: string, value: string) => {
     setInputValues((prev) => ({ ...prev, [name]: value }));
@@ -437,6 +440,12 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
               {currentTool && (
                 <p className="field-description">{currentTool.description}</p>
               )}
+              {isPartnerInitiated && (
+                <p className="field-description" role="note">
+                  This tool is partnerInitiated: Dragon Copilot never calls it, so it cannot be run from the
+                  sandbox. Partners submit pre-draft reports through the partner-initiated API instead.
+                </p>
+              )}
             </div>
 
             <div className="form-field">
@@ -458,7 +467,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                 appearance="primary"
                 icon={<CodeRegular />}
                 onClick={handleRunTest}
-                disabled={isExecuting}
+                disabled={isExecuting || isPartnerInitiated}
               >
                 {isExecuting ? 'Running...' : 'Run Test'}
               </Button>
@@ -648,7 +657,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                     appearance="primary"
                     icon={<CodeRegular />}
                     onClick={handleRunTest}
-                    disabled={isExecuting}
+                    disabled={isExecuting || isPartnerInitiated}
                   >
                     Re-run Execution
                   </Button>
@@ -684,7 +693,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
             {result && currentTool ? (
               <div className="outputs-display">
                 <h3 className="outputs-section-title">Request Payload</h3>
-                <div className="request-method-badge">POST {currentTool.endpoint}</div>
+                <div className="request-method-badge">POST {currentTool.endpoint ?? '(no endpoint)'}</div>
                 <pre className="dark-code-block">
                   {result.sentRequest
                     ? JSON.stringify(result.sentRequest, null, 2)

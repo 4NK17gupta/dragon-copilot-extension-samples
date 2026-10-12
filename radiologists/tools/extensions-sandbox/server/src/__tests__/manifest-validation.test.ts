@@ -118,4 +118,159 @@ describe('Manifest Schema Validation', () => {
     expect(isValid).toBe(true);
     expect(validate.errors).toBeNull();
   });
+
+  describe('partnerInitiated tools', () => {
+    function partnerInitiatedManifest(toolOverrides: Record<string, unknown> = {}) {
+      return {
+        name: 'partnerInitiatedExtension',
+        description: 'Submits pre-draft reports to Dragon Copilot',
+        version: '1.0.0',
+        radiologistsExtensibilityApiVersion: '0.1.0',
+        auth: { tenantId: '12345678-1234-1234-1234-123456789abc' },
+        tools: [
+          {
+            name: 'preDraftTool',
+            toolType: 'partnerInitiated',
+            capability: 'preDraftReportGeneration',
+            description: 'Generates a draft report before the radiologist opens the study',
+            outputs: [
+              {
+                name: 'draftReport',
+                description: 'Draft report',
+                'content-type': 'application/vnd.ms-dragon.rad.draft-report+json',
+                schemaVersion: '1.0',
+              },
+            ],
+            ...toolOverrides,
+          },
+        ],
+      };
+    }
+
+    it('accepts a partnerInitiated tool without endpoint or inputs', () => {
+      const isValid = validate(partnerInitiatedManifest());
+
+      if (!isValid) {
+        console.error('Validation errors:', JSON.stringify(validate.errors, null, 2));
+      }
+
+      expect(isValid).toBe(true);
+    });
+
+    it('rejects a partnerInitiated tool paired with the qualityCheck capability', () => {
+      expect(validate(partnerInitiatedManifest({ capability: 'qualityCheck' }))).toBe(false);
+      expect(validate.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            instancePath: '/tools/0/capability',
+            keyword: 'const',
+            params: { allowedValue: 'preDraftReportGeneration' },
+          }),
+        ]),
+      );
+    });
+
+    it('rejects a contractBased tool paired with the preDraftReportGeneration capability', () => {
+      const isValid = validate(
+        partnerInitiatedManifest({
+          toolType: 'contractBased',
+          capability: 'preDraftReportGeneration',
+          endpoint: 'https://api.example.com/v1/process',
+          inputs: [
+            {
+              name: 'report',
+              description: 'Report input',
+              'content-type': 'application/vnd.ms-dragon.rad.report+json',
+              schemaVersion: '1.0',
+            },
+          ],
+        }),
+      );
+
+      expect(isValid).toBe(false);
+      expect(validate.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            instancePath: '/tools/0/capability',
+            keyword: 'const',
+            params: { allowedValue: 'qualityCheck' },
+          }),
+        ]),
+      );
+    });
+
+    it.each([
+      ['endpoint', 'https://api.example.com/v1/process'],
+      [
+        'inputs',
+        [
+          {
+            name: 'report',
+            description: 'Report input',
+            'content-type': 'application/vnd.ms-dragon.rad.report+json',
+            schemaVersion: '1.0',
+          },
+        ],
+      ],
+    ])('rejects a partnerInitiated tool that declares %s', (property, value) => {
+      expect(validate(partnerInitiatedManifest({ [property]: value }))).toBe(false);
+      expect(validate.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ instancePath: `/tools/0/${property}`, keyword: 'false schema' }),
+        ]),
+      );
+    });
+
+    it('still requires endpoint and inputs on a contractBased tool', () => {
+      const isValid = validate(
+        partnerInitiatedManifest({
+          toolType: 'contractBased',
+          capability: 'qualityCheck',
+          outputs: [
+            {
+              name: 'result',
+              description: 'Result',
+              'content-type': 'application/vnd.ms-dragon.rad.quality-check-result+json',
+              schemaVersion: '1.0',
+            },
+          ],
+        }),
+      );
+
+      expect(isValid).toBe(false);
+      expect(validate.errors!.map((e) => e.params)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ missingProperty: 'endpoint' }),
+          expect.objectContaining({ missingProperty: 'inputs' }),
+        ]),
+      );
+    });
+
+    it.each([
+      ['endpoint', { inputs: [{ name: 'report', description: 'Report input', 'content-type': 'application/vnd.ms-dragon.rad.report+json', schemaVersion: '1.0' }] }],
+      ['inputs', { endpoint: 'https://api.example.com/v1/process' }],
+    ])('requires %s on a contractBased tool even when the other is present', (missing, present) => {
+      const isValid = validate(
+        partnerInitiatedManifest({
+          toolType: 'contractBased',
+          capability: 'qualityCheck',
+          ...present,
+          outputs: [
+            {
+              name: 'result',
+              description: 'Result',
+              'content-type': 'application/vnd.ms-dragon.rad.quality-check-result+json',
+              schemaVersion: '1.0',
+            },
+          ],
+        }),
+      );
+
+      expect(isValid).toBe(false);
+      const missingProperties = validate.errors!
+        .filter((e) => e.keyword === 'required')
+        .map((e) => (e.params as { missingProperty: string }).missingProperty);
+      expect(missingProperties).toEqual([missing]);
+    });
+  });
 });

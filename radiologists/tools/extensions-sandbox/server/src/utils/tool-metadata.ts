@@ -4,7 +4,10 @@ import { getInputSchemaForContentType } from '../services/validation.js';
 export interface ToolMetadata {
   name: string;
   description: string;
-  endpoint: string;
+  /** partnerInitiated tools are never called by Dragon Copilot, so the UI cannot execute them. */
+  toolType: ExtensionManifest['tools'][number]['toolType'];
+  /** Absent for tools without a callable endpoint (e.g. partnerInitiated). */
+  endpoint?: string;
   inputs: {
     name: string;
     description: string;
@@ -39,8 +42,9 @@ export function getToolsForCapability(manifest: ExtensionManifest, capabilityNam
     .map((t) => ({
       name: t.name,
       description: t.description,
+      toolType: t.toolType,
       endpoint: t.endpoint,
-      inputs: t.inputs.map((input) => ({
+      inputs: (t.inputs ?? []).map((input) => ({
         name: input.name,
         description: input.description,
         contentType: input['content-type'],

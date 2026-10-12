@@ -158,4 +158,32 @@ describe('Tool Metadata - getToolsForCapability', () => {
     expect(tools![0].endpoint).toBe('https://api.example.com/v1/process');
     expect(tools![1].endpoint).toBe('https://api.example.com/v1/billing');
   });
+
+  it('should expose toolType so the UI can tell executable tools apart', () => {
+    const tools = getToolsForCapability(sampleManifest, 'qualityCheck');
+    expect(tools!.map((t) => t.toolType)).toEqual(['contractBased', 'contractBased']);
+  });
+
+  it('should describe a partnerInitiated tool without an endpoint or inputs', () => {
+    const manifest = {
+      name: 'partner',
+      description: 'Partner',
+      version: '0.0.1',
+      auth: { tenantId: '00000000-0000-0000-0000-000000000000' },
+      tools: [
+        {
+          name: 'pre-draft',
+          toolType: 'partnerInitiated',
+          capability: 'preDraftReportGeneration',
+          description: 'Submits pre-draft reports',
+          outputs: baseTool.outputs,
+        },
+      ],
+    } as unknown as ExtensionManifest;
+
+    const [tool] = getToolsForCapability(manifest, 'preDraftReportGeneration')!;
+    expect(tool.toolType).toBe('partnerInitiated');
+    expect(tool.endpoint).toBeUndefined();
+    expect(tool.inputs).toEqual([]);
+  });
 });

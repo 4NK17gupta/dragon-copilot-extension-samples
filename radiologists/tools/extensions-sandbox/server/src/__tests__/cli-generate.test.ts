@@ -83,13 +83,19 @@ describe('GET /api/cli/options', () => {
     expect(response.status).toBe(200);
     expect(options.domain).toBe('radiologists');
     expect(options.templates).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: 'quality-check', toolCount: 1 })]),
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'quality-check', toolCount: 1 }),
+        expect.objectContaining({ id: 'pre-draft-report', toolCount: 1 }),
+      ]),
     );
     expect(options.inputTypes.map((choice: { value: string }) => choice.value)).toEqual([
       REPORT_CONTENT_TYPE,
       PATIENT_INFORMATION_CONTENT_TYPE,
     ]);
-    expect(options.capabilities).toEqual([{ name: 'Report Optimization', value: 'qualityCheck' }]);
+    expect(options.capabilities).toEqual([
+      { name: 'Report Optimization', value: 'qualityCheck' },
+      { name: 'Pre-Draft Report Generation', value: 'preDraftReportGeneration' },
+    ]);
     expect(options.bodyParts.length).toBeGreaterThan(0);
     expect(options.modalities.length).toBeGreaterThan(0);
     expect(options.defaults.extensionName).toBe('myRadiologistsExtension');
@@ -117,6 +123,31 @@ describe('POST /api/cli/generate (template mode)', () => {
     const manifest = yaml.load(body.yaml) as ExtensionManifest;
     expect(manifest.auth.tenantId).toBe(TENANT_ID);
     expect(manifest.tools[0].endpoint).toBe('https://publisher.example.com/quality-check');
+  });
+
+  it('returns schema-valid YAML for the partnerInitiated pre-draft-report template', async () => {
+    const { status, body } = await generate({
+      domain: 'radiologists',
+      mode: 'template',
+      template: 'pre-draft-report',
+      tenantId: TENANT_ID,
+    });
+
+    expect(status).toBe(200);
+    expect(body.valid).toBe(true);
+    expect(body.manifest).toEqual({
+      name: 'sampleRadiologyExtension',
+      version: '0.0.1',
+      toolCount: 1,
+      capabilities: ['preDraftReportGeneration'],
+    });
+
+    const manifest = yaml.load(body.yaml) as ExtensionManifest;
+    const tool = manifest.tools[0];
+    expect(tool.toolType).toBe('partnerInitiated');
+    expect(tool).not.toHaveProperty('endpoint');
+    expect(tool).not.toHaveProperty('inputs');
+    expect(tool.outputs[0]['content-type']).toBe('application/vnd.ms-dragon.rad.draft-report+json');
   });
 
   it('does not leak state between generations from the same template', async () => {
@@ -171,12 +202,28 @@ describe('POST /api/cli/generate (custom mode)', () => {
     expect(manifest.name).toBe('myRadiologistsExtension');
     expect(manifest.tools[0].toolType).toBe('contractBased');
     expect(manifest.tools[0].capability).toBe('qualityCheck');
-    expect(manifest.tools[0].inputs.map((input) => input.name)).toEqual(['report', 'patientInformation']);
+    expect(manifest.tools[0].inputs!.map((input) => input.name)).toEqual(['report', 'patientInformation']);
     expect(manifest.tools[0].outputs[0]['content-type']).toBe(
       'application/vnd.ms-dragon.rad.quality-check-result+json',
     );
     // Left unset by the wizard, so the tool is always considered.
     expect(manifest.tools[0].relevanceFilteringCriteria).toBeUndefined();
+  });
+
+  it('omits endpoint and inputs for a partnerInitiated tool and defaults its capability and output', async () => {
+    const { status, body } = await generate(
+      customRequest({ tool: { ...customRequest().tool, toolType: 'partnerInitiated' } }),
+    );
+
+    expect(status).toBe(200);
+    expect(body.valid).toBe(true);
+
+    const tool = (yaml.load(body.yaml) as ExtensionManifest).tools[0];
+    expect(tool.toolType).toBe('partnerInitiated');
+    expect(tool.capability).toBe('preDraftReportGeneration');
+    expect(tool.endpoint).toBeUndefined();
+    expect(tool.inputs).toBeUndefined();
+    expect(tool.outputs[0]['content-type']).toBe('application/vnd.ms-dragon.rad.draft-report+json');
   });
 
   it('includes relevance filtering criteria when the user selects them', async () => {

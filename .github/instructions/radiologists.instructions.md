@@ -25,7 +25,9 @@ Three C# sample variants live under `radiologists/src/samples/Workflow/`:
 | Ai            | `SampleExtension.Radiologists.Web.Ai/`         | Calls **Azure OpenAI** when the `OpenAI` config is populated; otherwise returns a `503` "not configured" error.                   | `net10.0`                   | Cross-platform |
 | Foundry Local | `SampleExtension.Radiologists.Web.Local/`      | Runs an on-device model via **Foundry Local** (`Microsoft.AI.Foundry.Local.WinML`); no cloud account or API key needed.           | `net10.0-windows10.0.26100` | Windows-only   |
 
-## Stack facts
+One `partnerInitiated` sample lives under `radiologists/src/samples/PartnerInitiated/`: `PreDraftReport.Console.QuickStart/` — a `net10.0` console app that submits a pre-draft report the way a Partner's service does, to a simulated Dragon Copilot endpoint in `Simulation/`. It has its own `extension.yaml`. For `partnerInitiated` work use the contract in `radiologists/partner-initiated/` (`README.md`, the schemas, the example payloads in `samples/` and `authentication.md`) and the models in `radiologists/src/models/Dragon.Copilot.Radiologists.Models/PartnerInitiated/`. Keep `Simulation/` in step with `radiologists/partner-initiated/README.md` when either changes; it deliberately simplifies authentication and only checks that a bearer token is present. The shared `doc/` authentication guides and the stack facts below don't apply to it.
+
+## Stack facts (`contractBased` samples)
 
 - C# target framework: `net10.0` (Quickstart and Ai, cross-platform), `net10.0-windows10.0.26100` (Foundry Local, due to the Foundry Local dependency).
 - Default dev ports: **5080** (HTTP), **7080** (HTTPS).

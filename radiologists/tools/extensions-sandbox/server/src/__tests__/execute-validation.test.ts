@@ -157,6 +157,50 @@ describe('POST /api/manifest/execute – input validation', () => {
   });
 });
 
+describe('POST /api/manifest/execute – partnerInitiated tools', () => {
+  beforeEach(() => {
+    sessionStore.clear();
+    receivedRequests = [];
+    sessionStore.setManifest({
+      name: 'partner-extension',
+      description: 'Partner-initiated extension',
+      version: '1.0.0',
+      radiologistsExtensibilityApiVersion: '0.1.0',
+      auth: { tenantId: '00000000-0000-0000-0000-000000000000' },
+      tools: [
+        {
+          name: 'pre-draft',
+          toolType: 'partnerInitiated',
+          capability: 'preDraftReportGeneration',
+          description: 'Submits pre-draft reports',
+          outputs: [
+            {
+              name: 'draft',
+              description: 'Pre-draft report',
+              'content-type': 'application/vnd.ms-dragon.rad.draft-report+json',
+              schemaVersion: '0.1',
+            },
+          ],
+        },
+      ],
+    } as unknown as ExtensionManifest);
+  });
+
+  it('rejects execution with an explanation instead of a generic endpoint error', async () => {
+    const res = await fetch(`${sandboxUrl}/api/manifest/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ capability: 'preDraftReportGeneration', tool: 'pre-draft', inputs: {} }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain('partnerInitiated');
+    expect(body.error).toContain('cannot be executed');
+    expect(receivedRequests).toHaveLength(0);
+  });
+});
+
 describe('POST /api/manifest/execute – response validation', () => {
   beforeEach(() => {
     sessionStore.clear();

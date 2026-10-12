@@ -3,6 +3,7 @@ import { load } from 'js-yaml';
 import {
   DEFAULT_OUTPUT_CONTENT_TYPE,
   DEFAULT_PAYLOAD_SCHEMA_VERSION,
+  DRAFT_REPORT_CONTENT_TYPE,
   MANIFEST_DEFAULTS,
   PATIENT_INFORMATION_CONTENT_TYPE,
   REPORT_CONTENT_TYPE,
@@ -96,6 +97,72 @@ describe('radiologists manifest builder', () => {
     });
   });
 
+  it('omits endpoint and inputs for partnerInitiated tools and defaults their capability and output', () => {
+    const tool = buildTool({
+      name: 'draftReportGenerator',
+      description: 'Submits draft reports',
+      toolType: 'partnerInitiated',
+      endpoint: 'https://api.example.com/ignored',
+      inputTypes: [REPORT_CONTENT_TYPE],
+      outputs: [{ name: 'draftReport', description: 'Draft radiology report' }],
+    });
+
+    expect(tool).not.toHaveProperty('endpoint');
+    expect(tool).not.toHaveProperty('inputs');
+    expect(tool.capability).toBe('preDraftReportGeneration');
+    expect(tool.outputs[0]?.['content-type']).toBe(DRAFT_REPORT_CONTENT_TYPE);
+
+    const result = validateDcrExtensionManifest(
+      buildManifest({
+        extension: {
+          name: 'myRadiologistsExtension',
+          description: 'A Dragon Copilot radiologists extension',
+          version: '0.0.1',
+          radiologistsExtensibilityApiVersion: '1.0.0',
+        },
+        auth: { tenantId: TENANT_ID },
+        tools: [
+          {
+            name: 'draftReportGenerator',
+            description: 'Submits draft reports',
+            toolType: 'partnerInitiated',
+            outputs: [{ name: 'draftReport', description: 'Draft radiology report' }],
+          },
+        ],
+      }),
+    );
+    expect(result.errors).toHaveLength(0);
+    expect(result.isValid).toBe(true);
+  });
+
+  it.each([
+    ['endpoint', { inputTypes: [REPORT_CONTENT_TYPE] }],
+    ['input types', { endpoint: 'https://api.example.com/radiologists/v1/process' }],
+  ])('rejects a contractBased tool with no %s instead of inventing one', (_missing, fields) => {
+    expect(() =>
+      buildTool({
+        name: 'myRadiologistsTool',
+        description: 'Processes radiology reports',
+        toolType: 'contractBased',
+        outputs: [{ name: 'qualityCheckResult', description: 'Quality check result' }],
+        ...fields,
+      }),
+    ).toThrow("contractBased tool 'myRadiologistsTool' requires an endpoint and input types.");
+  });
+
+  it('passes an empty endpoint and input list through for schema validation to report', () => {
+    const tool = buildTool({
+      name: 'myRadiologistsTool',
+      description: 'Processes radiology reports',
+      endpoint: '',
+      inputTypes: [],
+      outputs: [{ name: 'qualityCheckResult', description: 'Quality check result' }],
+    });
+
+    expect(tool.endpoint).toBe('');
+    expect(tool.inputs).toEqual([]);
+  });
+
   it('keeps relevance filtering criteria when supplied and omits it when empty', () => {
     const filtered = buildTool({
       name: 'myRadiologistsTool',
@@ -160,7 +227,7 @@ describe('radiologists manifest builder', () => {
   });
 
   it('summarizes templates for selection UIs', () => {
-    expect(listTemplates()).toContain('quality-check');
+    expect(listTemplates()).toEqual(['quality-check', 'pre-draft-report']);
     expect(listTemplateSummaries()).toEqual([
       {
         id: 'quality-check',
@@ -169,7 +236,36 @@ describe('radiologists manifest builder', () => {
         version: '0.0.1',
         toolCount: 1,
       },
+      {
+        id: 'pre-draft-report',
+        name: 'sampleRadiologyExtension',
+        description: 'Extension to provide pre-draft radiology report generation',
+        version: '0.0.1',
+        toolCount: 1,
+      },
     ]);
+  });
+
+  it('builds a schema-valid partnerInitiated manifest from the pre-draft-report template', () => {
+    const manifest = buildManifestFromTemplate('pre-draft-report', { tenantId: TENANT_ID });
+    const tool = manifest.tools[0]!;
+
+    expect(tool.toolType).toBe('partnerInitiated');
+    expect(tool.capability).toBe('preDraftReportGeneration');
+    expect(tool).not.toHaveProperty('endpoint');
+    expect(tool).not.toHaveProperty('inputs');
+    expect(tool.outputs).toEqual([
+      {
+        name: 'preDraftReportResult',
+        description: 'Pre-draft radiology report',
+        'content-type': DRAFT_REPORT_CONTENT_TYPE,
+        schemaVersion: DEFAULT_PAYLOAD_SCHEMA_VERSION,
+      },
+    ]);
+
+    const result = validateDcrExtensionManifest(manifest);
+    expect(result.errors).toHaveLength(0);
+    expect(result.isValid).toBe(true);
   });
 
   it('renders YAML that round-trips back to the same manifest', () => {

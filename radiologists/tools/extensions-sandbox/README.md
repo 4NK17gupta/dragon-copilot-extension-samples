@@ -128,7 +128,7 @@ extensions-sandbox/
 └── server/               # Express backend
     ├── scripts/
     │   ├── generate-output-schemas.ts  # Generates JSON Schemas from OpenAPI spec
-    │   └── sync-schemas.ts             # Syncs the manifest schema, OpenAPI spec, and CLI manifest core from their owners
+    │   └── sync-schemas.ts             # Syncs the manifest schema, OpenAPI spec, partner-initiated schemas, and CLI manifest core from their owners
     ├── src/
     │   ├── index.ts      # Server entry point
     │   ├── cli/
@@ -137,7 +137,8 @@ extensions-sandbox/
     │   ├── schemas/
     │   │   ├── radiologists/
     │   │   │   ├── radiologists-extension-manifest-schema.json  # Synced from the CLI (git-ignored)
-    │   │   │   └── radiologists-extensibility-api.yaml          # Synced from radiologists/ (git-ignored)
+    │   │   │   ├── radiologists-extensibility-api.yaml          # Synced from radiologists/ (git-ignored)
+    │   │   │   └── partner-initiated/                           # Draft report schemas, synced from radiologists/partner-initiated/ (git-ignored)
     │   │   ├── generated-schemas/      # Auto-generated (do not edit by hand)
     │   │   │   ├── patient-information.json
     │   │   │   ├── quality-check-result.json
@@ -166,12 +167,14 @@ npm run generate-schemas
 
 The generation script (`scripts/generate-output-schemas.ts`) extracts the `PatientInformation`, `Report`, and `QualityCheckResult` schema definitions (and everything they reference, e.g. `Recommendation`, `Provenance`) from the OpenAPI YAML and produces standalone JSON Schema files. `patient-information.json` and `report.json` are used to validate and describe tool *inputs*; `quality-check-result.json` is used to validate extension *responses*.
 
-> **Note:** The sandbox owns neither contract it validates against, nor the code behind the CLI
-> wizard. All three are synced in at dev/build/test time by `scripts/sync-schemas.ts`, and the local
+> **Note:** The sandbox owns none of the contracts it validates against, nor the code behind the CLI
+> wizard. All of them are synced in at dev/build/test time by `scripts/sync-schemas.ts`, and the local
 > copies are git-ignored so the upstream copy stays the single source of truth:
 > the manifest schema (`radiologists-extension-manifest-schema.json`) and the manifest core
-> (`src/cli/radiologists/`) are owned by the `tools/dragon-copilot-cli` package, and the OpenAPI spec
-> (`radiologists-extensibility-api.yaml`) is owned by `radiologists/`.
+> (`src/cli/radiologists/`) are owned by the `tools/dragon-copilot-cli` package, the OpenAPI spec
+> (`radiologists-extensibility-api.yaml`) is owned by `radiologists/`, and the draft report schemas
+> for `partnerInitiated` tools (`partner-initiated/draft-report-schema.json` and
+> `partner-initiated/draft-report-ingest-request-schema.json`) are owned by `radiologists/partner-initiated/`.
 > `src/__tests__/schema-sync.test.ts` fails if any copy drifts from its source. The OpenAPI spec will
 > be replaced with an internal package reference once `diag-radex-extension-service` publishes its
 > authoritative version.

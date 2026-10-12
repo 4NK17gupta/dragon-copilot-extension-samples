@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import yaml from 'js-yaml';
-import { MANIFEST_SCHEMA_PATH, OPENAPI_SPEC_PATH } from '../utils/schema-path.js';
+import {
+  DRAFT_REPORT_INGEST_REQUEST_SCHEMA_PATH,
+  DRAFT_REPORT_SCHEMA_PATH,
+  MANIFEST_SCHEMA_PATH,
+  OPENAPI_SPEC_PATH,
+} from '../utils/schema-path.js';
 
 /**
  * Divergence guard: the sandbox owns neither the contracts it validates against
@@ -55,6 +60,17 @@ const CLI_MANIFEST_LIB_PATH = resolve(
   'domains',
   'radiologists',
   'manifest',
+);
+
+// server/src/__tests__ -> radiologists/partner-initiated
+const RADIOLOGISTS_PARTNER_INITIATED_PATH = resolve(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  '..',
+  '..',
+  'partner-initiated',
 );
 
 // server/src/__tests__ -> server/src/cli/radiologists
@@ -127,5 +143,30 @@ describe('CLI manifest core sync', () => {
       const source = readNormalized(resolve(SANDBOX_MANIFEST_LIB_PATH, file));
       expect(source, `${file} imports a dependency the sandbox cannot resolve`).not.toMatch(forbidden);
     }
+  });
+});
+
+describe('Partner-initiated schema sync', () => {
+  const syncedSchemaPaths = [DRAFT_REPORT_SCHEMA_PATH, DRAFT_REPORT_INGEST_REQUEST_SCHEMA_PATH];
+
+  it.each(syncedSchemaPaths)('has %s synced into the sandbox', (sandboxPath) => {
+    expect(existsSync(sandboxPath)).toBe(true);
+  });
+
+  it.each(syncedSchemaPaths)('matches the radiologists authoritative source for %s (no drift)', (sandboxPath) => {
+    const sourcePath = resolve(RADIOLOGISTS_PARTNER_INITIATED_PATH, basename(sandboxPath));
+    expect(existsSync(sourcePath)).toBe(true);
+
+    const sandboxSchema = JSON.parse(readFileSync(sandboxPath, 'utf-8'));
+    const radiologistsSchema = JSON.parse(readFileSync(sourcePath, 'utf-8'));
+
+    expect(sandboxSchema).toEqual(radiologistsSchema);
+  });
+
+  it('mirrors every top-level JSON schema from the radiologists source', () => {
+    const sourceFiles = readdirSync(RADIOLOGISTS_PARTNER_INITIATED_PATH).filter((file) => file.endsWith('.json')).sort();
+    const sandboxFiles = readdirSync(dirname(DRAFT_REPORT_SCHEMA_PATH)).filter((file) => file.endsWith('.json')).sort();
+
+    expect(sandboxFiles).toEqual(sourceFiles);
   });
 });
