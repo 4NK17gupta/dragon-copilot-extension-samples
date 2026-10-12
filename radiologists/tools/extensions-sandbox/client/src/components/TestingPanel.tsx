@@ -144,7 +144,10 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
       return;
     }
 
-    // Reset state so the form is regenerated even if capability/tool names match
+    // Reset state so the form is regenerated even if capability/tool names match.
+    // Clearing selectedCapability also stops the tools effect from fetching a
+    // capability that may not exist in the new manifest.
+    setSelectedCapability('');
     setTools([]);
     setSelectedTool('');
     setInputValues({});
@@ -155,15 +158,22 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     setInputValidationErrors(null);
     setActiveTab('setup');
 
+    let cancelled = false;
     fetch('/api/manifest/capabilities')
       .then((res) => res.ok ? res.json() : [])
       .then((data: Capability[]) => {
+        if (cancelled) return;
         setCapabilities(data);
         if (data.length > 0) {
           setSelectedCapability(data[0].name);
         }
       })
-      .catch(() => setCapabilities([]));
+      .catch(() => {
+        if (!cancelled) setCapabilities([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [manifestInfo]);
 
   // Clear stale test/validation results whenever the manifest is edited.
@@ -178,7 +188,8 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     setInputValidationErrors(null);
   }, [manifestRevision]);
 
-  // Load tools when capability or manifest changes
+  // Load tools when the selected capability changes. A manifest change clears
+  // selectedCapability first, so this refetches even when the name is reused.
   useEffect(() => {
     if (!selectedCapability) {
       setTools([]);
@@ -186,16 +197,23 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
       return;
     }
 
+    let cancelled = false;
     fetch(`/api/manifest/capabilities/${encodeURIComponent(selectedCapability)}/tools`)
       .then((res) => res.ok ? res.json() : [])
       .then((data: Tool[]) => {
+        if (cancelled) return;
         setTools(data);
         if (data.length > 0) {
           setSelectedTool(data[0].name);
         }
       })
-      .catch(() => setTools([]));
-  }, [selectedCapability, manifestInfo]);
+      .catch(() => {
+        if (!cancelled) setTools([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCapability]);
 
   // Reset input values when tool changes
   useEffect(() => {

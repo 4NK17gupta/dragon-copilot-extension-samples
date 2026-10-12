@@ -197,4 +197,59 @@ describe('TestingPanel capability label', () => {
     expect(screen.queryByText('Report Optimization')).toBeNull();
     expect(screen.queryByText('qualityCheck')).toBeNull();
   });
+
+  it('does not fetch tools for the previous capability when the manifest changes', async () => {
+    let capabilityName = 'qualityCheck';
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/manifest/capabilities')) {
+        return json([{ name: capabilityName, displayName: capabilityName, description: '', toolCount: 1 }]);
+      }
+      return json([]);
+    });
+    const toolCalls = (name: string) =>
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith(`/capabilities/${name}/tools`));
+
+    const { rerender } = render(
+      <FluentProvider theme={webLightTheme}>
+        <TestingPanel manifestInfo={manifestInfo} manifestRevision={0} />
+      </FluentProvider>,
+    );
+    await waitFor(() => expect(toolCalls('qualityCheck')).toHaveLength(1));
+    await act(async () => {});
+
+    capabilityName = 'preDraftReport';
+    rerender(
+      <FluentProvider theme={webLightTheme}>
+        <TestingPanel
+          manifestInfo={{ ...manifestInfo, name: 'pre-draft', capabilities: ['preDraftReport'] }}
+          manifestRevision={1}
+        />
+      </FluentProvider>,
+    );
+    await waitFor(() => expect(toolCalls('preDraftReport')).toHaveLength(1));
+    await act(async () => {});
+
+    expect(toolCalls('qualityCheck')).toHaveLength(1);
+  });
+
+  it('refetches tools when a new manifest reuses the same capability name', async () => {
+    const { rerender } = render(
+      <FluentProvider theme={webLightTheme}>
+        <TestingPanel manifestInfo={manifestInfo} manifestRevision={0} />
+      </FluentProvider>,
+    );
+    const toolCalls = () =>
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/capabilities/reportQuality/tools'));
+    await waitFor(() => expect(toolCalls()).toHaveLength(1));
+    await act(async () => {});
+
+    rerender(
+      <FluentProvider theme={webLightTheme}>
+        <TestingPanel manifestInfo={{ ...manifestInfo }} manifestRevision={1} />
+      </FluentProvider>,
+    );
+    await waitFor(() => expect(toolCalls()).toHaveLength(2));
+    await act(async () => {});
+  });
 });
