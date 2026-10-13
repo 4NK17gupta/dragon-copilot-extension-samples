@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { sessionStore } from '../store/session.js';
 import { parseCapabilities } from '../utils/capabilities-parser.js';
 import type { ExtensionManifest } from '../schemas/manifest.schema.js';
@@ -163,5 +165,29 @@ describe('Capabilities Parser', () => {
 
     const capabilities = parseCapabilities(manifest);
     expect(capabilities[0].description).toBe('ALLCAPS capability');
+  });
+
+  it('should report both capabilities for the mixed contractBased + partnerInitiated sample fixture', () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(__dirname, 'fixtures', 'valid-manifest-mixed-tool-types.json'), 'utf-8'),
+    ) as ExtensionManifest;
+
+    sessionStore.setManifest(manifest);
+    const capabilities = parseCapabilities(sessionStore.getManifest()!);
+
+    expect(capabilities).toEqual([
+      {
+        name: 'qualityCheck',
+        displayName: 'Report Optimization',
+        description: 'Report Optimization capability',
+        toolCount: 1,
+      },
+      {
+        name: 'preDraftReportGeneration',
+        displayName: 'Pre-Draft Report Generation',
+        description: 'Pre-Draft Report Generation capability',
+        toolCount: 1,
+      },
+    ]);
   });
 });

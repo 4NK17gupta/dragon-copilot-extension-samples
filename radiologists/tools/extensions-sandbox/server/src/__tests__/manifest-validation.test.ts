@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
+import yaml from 'js-yaml';
 import { MANIFEST_SCHEMA_PATH } from '../utils/schema-path.js';
 
 const manifestJsonSchema = JSON.parse(readFileSync(MANIFEST_SCHEMA_PATH, 'utf-8'));
@@ -14,6 +15,15 @@ const validate = ajv.compile(manifestJsonSchema);
 const fixturesDir = resolve(__dirname, 'fixtures');
 const validManifestSimple = JSON.parse(readFileSync(resolve(fixturesDir, 'valid-manifest-simple.json'), 'utf-8'));
 const validManifestFullFeatured = JSON.parse(readFileSync(resolve(fixturesDir, 'valid-manifest-full-featured.json'), 'utf-8'));
+const validManifestPartnerInitiated = JSON.parse(
+  readFileSync(resolve(fixturesDir, 'valid-manifest-partner-initiated.json'), 'utf-8'),
+);
+const validManifestMixedToolTypes = JSON.parse(
+  readFileSync(resolve(fixturesDir, 'valid-manifest-mixed-tool-types.json'), 'utf-8'),
+);
+
+// server/src/__tests__ -> radiologists/
+const RADIOLOGISTS_DIR = resolve(__dirname, '..', '..', '..', '..', '..');
 
 describe('Manifest Schema Validation', () => {
   it('should validate a conforming radiology extension manifest as valid', () => {
@@ -271,6 +281,62 @@ describe('Manifest Schema Validation', () => {
         .filter((e) => e.keyword === 'required')
         .map((e) => (e.params as { missingProperty: string }).missingProperty);
       expect(missingProperties).toEqual([missing]);
+    });
+  });
+
+  describe('AI Draft sample fixtures', () => {
+    const fixtures = [
+      {
+        fixture: 'valid-manifest-partner-initiated.json',
+        manifest: validManifestPartnerInitiated,
+        source: resolve(RADIOLOGISTS_DIR, 'src', 'samples', 'PartnerInitiated', 'extension.yaml'),
+      },
+      {
+        fixture: 'valid-manifest-mixed-tool-types.json',
+        manifest: validManifestMixedToolTypes,
+        source: resolve(RADIOLOGISTS_DIR, 'manifest', 'extension.yaml'),
+      },
+    ];
+
+    it.each(fixtures)('validates $fixture against the manifest schema', ({ manifest }) => {
+      const isValid = validate(manifest);
+
+      if (!isValid) {
+        console.error('Validation errors:', JSON.stringify(validate.errors, null, 2));
+      }
+
+      expect(isValid).toBe(true);
+      expect(validate.errors).toBeNull();
+    });
+
+    it.each(fixtures)('keeps $fixture in step with the sample manifest it is derived from', ({ manifest, source }) => {
+      expect(manifest).toEqual(yaml.load(readFileSync(source, 'utf-8')));
+    });
+
+    it('declares a single partnerInitiated preDraftReportGeneration tool with no endpoint or inputs keys', () => {
+      expect(validManifestPartnerInitiated.tools).toHaveLength(1);
+      const [tool] = validManifestPartnerInitiated.tools;
+
+      expect(tool).toMatchObject({ toolType: 'partnerInitiated', capability: 'preDraftReportGeneration' });
+      expect(Object.keys(tool)).not.toContain('endpoint');
+      expect(Object.keys(tool)).not.toContain('inputs');
+      expect(tool.outputs.map((output: Record<string, string>) => output['content-type'])).toEqual([
+        'application/vnd.ms-dragon.rad.draft-report+json',
+      ]);
+    });
+
+    it('declares both a contractBased and a partnerInitiated tool in the mixed fixture', () => {
+      const tools = validManifestMixedToolTypes.tools as Array<Record<string, unknown>>;
+
+      expect(tools.map(({ name, toolType, capability }) => ({ name, toolType, capability }))).toEqual([
+        { name: 'sampleQualityCheckTool', toolType: 'contractBased', capability: 'qualityCheck' },
+        { name: 'preDraftReportGeneratorTool', toolType: 'partnerInitiated', capability: 'preDraftReportGeneration' },
+      ]);
+
+      const [contractBased, partnerInitiated] = tools;
+      expect(Object.keys(contractBased)).toEqual(expect.arrayContaining(['endpoint', 'inputs']));
+      expect(Object.keys(partnerInitiated)).not.toContain('endpoint');
+      expect(Object.keys(partnerInitiated)).not.toContain('inputs');
     });
   });
 });

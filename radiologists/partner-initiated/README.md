@@ -43,7 +43,7 @@ tools:
 
 - `auth.tenantId` should be your Microsoft Entra tenant ID. Results must be submitted with an access token issued by your tenant. See [Authentication](#authentication).
 - A `partnerInitiated` tool omits `endpoint` and `inputs`, since neither is used, and declares only what it produces. The manifest schema requires `endpoint` and `inputs` only when `toolType` is `contractBased`.
-
+- The [reference manifest](../manifest/extension.yaml) declares this tool alongside a `contractBased` one.
 Validate the manifest with the [Dragon Copilot CLI](../../tools/dragon-copilot-cli/README.md): `dragon-copilot radiologists validate ./extension.yaml`.
 
 ## Submitting a result

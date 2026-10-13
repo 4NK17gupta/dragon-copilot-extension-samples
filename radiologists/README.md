@@ -20,7 +20,7 @@ Key resources:
 - CLI tools to initialize, generate manifests, validate, and package Radiologists Workflows
 - [Partner-initiated tools](partner-initiated/README.md) — draft report schemas and samples for `partnerInitiated` tools that submit results to Dragon Copilot
 - Runnable [`partnerInitiated` sample](src/samples/PartnerInitiated/README.md) — console app that authenticates and submits a pre-draft report; its [`extension.yaml`](src/samples/PartnerInitiated/extension.yaml) declares only the tool it implements
-
+- Reference [`manifest/extension.yaml`](manifest/extension.yaml) — a single manifest declaring a `contractBased` quality-check tool alongside a `partnerInitiated` pre-draft report tool
 ### Radiologists Extensions Overview
 
 | Type                      | Description                                                                            | Use Case                                                    |

@@ -12,6 +12,9 @@
  *   schemas for `partnerInitiated` tools (`draft-report-schema.json`,
  *   `draft-report-ingest-request-schema.json`), owned by `radiologists/partner-initiated/`.
  *   They are copied as-is, not generated, because they are not part of the OpenAPI spec.
+ * - `src/schemas/radiologists/partner-initiated/samples/` — the example ingest request
+ *   and retrieve response payloads (`PreDraftReportGeneration-*-Example.json`), owned by
+ *   `radiologists/partner-initiated/samples/`. Copied byte-for-byte and used as test fixtures.
  * - `src/cli/radiologists/` — the Dragon Copilot CLI's pure manifest core
  *   (`tools/dragon-copilot-cli/src/domains/radiologists/manifest/`), which backs
  *   the `/api/cli/generate` endpoint so the sandbox wizard and `dragon-copilot
@@ -82,12 +85,24 @@ const SYNC_DIR_TARGETS: SyncDirTarget[] = [
     extensions: ['.ts'],
   },
   {
-    // Explicit allowlist: the README, samples/ and any future non-schema JSON stay upstream.
+    // Explicit allowlist: the README and any future non-schema JSON stay upstream;
+    // samples/ is synced by the next target.
     source: resolve(REPO_ROOT, 'radiologists', 'partner-initiated'),
     // server/scripts -> server/src/schemas/radiologists/partner-initiated
     dest: resolve(DEST_DIR, 'partner-initiated'),
     owner: 'radiologists',
     files: ['draft-report-schema.json', 'draft-report-ingest-request-schema.json'],
+  },
+  {
+    // Must stay after the partner-initiated target above, which recreates the parent directory.
+    source: resolve(REPO_ROOT, 'radiologists', 'partner-initiated', 'samples'),
+    // server/scripts -> server/src/schemas/radiologists/partner-initiated/samples
+    dest: resolve(DEST_DIR, 'partner-initiated', 'samples'),
+    owner: 'radiologists',
+    files: [
+      'PreDraftReportGeneration-Ingest-Request-Example.json',
+      'PreDraftReportGeneration-Retrieve-Response-Example.json',
+    ],
   },
 ];
 

@@ -3,11 +3,13 @@
 # Dragon Copilot Radiologists Extension Samples (partnerInitiated)
 
 This folder contains the sample for the `partnerInitiated` tool type, where your system generates a
-result on its own schedule and posts it to Dragon Copilot.
+result on its own schedule and posts it to Dragon Copilot. Your service calls Dragon Copilot; it
+hosts no endpoint, and Dragon Copilot never calls it.
 
 The other direction, where Dragon Copilot calls your endpoint and waits for the response, is
 `contractBased`. Those samples live in [`../Workflow`](../Workflow/README.md), and a
-single manifest can declare tools of both types.
+single manifest can declare tools of both types, as the reference
+[`manifest/extension.yaml`](../../../manifest/extension.yaml) does.
 
 ## What is here
 
@@ -15,6 +17,7 @@ single manifest can declare tools of both types.
 | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | [`PreDraftReport.Console.QuickStart`](./PreDraftReport.Console.QuickStart/README.md) | Submits a pre-draft report the way your service does, to a simulated Dragon Copilot endpoint. `net10.0`, cross-platform.        |
 | [`extension.yaml`](./extension.yaml)                                                 | The sample's manifest. The console installs it in the simulated environment, as a customer would install your extension.        |
+| [`submit-pre-draft-report.http`](./submit-pre-draft-report.http)                     | The same submissions as raw HTTP requests (submit, replay 409, unknown accession 404, unknown tool 404) for VS Code REST Client or Visual Studio. |
 
 ## Solution
 

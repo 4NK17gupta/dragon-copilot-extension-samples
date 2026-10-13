@@ -138,7 +138,7 @@ extensions-sandbox/
     │   │   ├── radiologists/
     │   │   │   ├── radiologists-extension-manifest-schema.json  # Synced from the CLI (git-ignored)
     │   │   │   ├── radiologists-extensibility-api.yaml          # Synced from radiologists/ (git-ignored)
-    │   │   │   └── partner-initiated/                           # Draft report schemas, synced from radiologists/partner-initiated/ (git-ignored)
+    │   │   │   └── partner-initiated/                           # Draft report schemas and samples/ example payloads, synced from radiologists/partner-initiated/ (git-ignored)
     │   │   ├── generated-schemas/      # Auto-generated (do not edit by hand)
     │   │   │   ├── patient-information.json
     │   │   │   ├── quality-check-result.json
@@ -153,7 +153,9 @@ extensions-sandbox/
     │   ├── utils/
     │   │   └── schema-path.ts          # Central path resolution for schemas
     │   └── __tests__/
-    │       └── fixtures/               # Test resource files
+    │       └── fixtures/               # Test resource files, including:
+    │           ├── valid-manifest-partner-initiated.json   # AI Draft: one partnerInitiated tool, no endpoint/inputs
+    │           └── valid-manifest-mixed-tool-types.json    # contractBased + partnerInitiated tools (mirrors radiologists/manifest/extension.yaml)
     └── tsconfig.json     # TypeScript configuration
 ```
 
@@ -175,7 +177,12 @@ The generation script (`scripts/generate-output-schemas.ts`) extracts the `Patie
 > (`radiologists-extensibility-api.yaml`) is owned by `radiologists/`, and the draft report schemas
 > for `partnerInitiated` tools (`partner-initiated/draft-report-schema.json` and
 > `partner-initiated/draft-report-ingest-request-schema.json`) are owned by `radiologists/partner-initiated/`.
-> `src/__tests__/schema-sync.test.ts` fails if any copy drifts from its source. The OpenAPI spec will
+> The example ingest request and retrieve response payloads (`PreDraftReportGeneration-*-Example.json`)
+> are copied byte-for-byte from `radiologists/partner-initiated/samples/` into `partner-initiated/samples/`;
+> their source paths are recorded in `src/utils/schema-path.ts`.
+> `src/__tests__/schema-sync.test.ts` fails if any copy drifts from its source, and
+> `src/__tests__/manifest-validation.test.ts` fails if the AI Draft and mixed manifest fixtures drift from
+> `radiologists/src/samples/PartnerInitiated/extension.yaml` and `radiologists/manifest/extension.yaml`. The OpenAPI spec will
 > be replaced with an internal package reference once `diag-radex-extension-service` publishes its
 > authoritative version.
 
