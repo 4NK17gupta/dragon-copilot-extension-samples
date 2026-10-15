@@ -35,10 +35,10 @@ beforeEach(() => {
   fetchMock = vi.fn(async (input, init) => {
     const url = String(input);
     if (url.endsWith('/api/manifest/capabilities')) {
-      return json([{ name: 'preDraftReportGeneration', displayName: 'Pre Draft Report Generation', toolCount: 1 }]);
+      return json([{ name: 'preDraftReportGeneration', displayName: 'Draft Report Generation', toolCount: 1 }]);
     }
     if (url.endsWith('/tools')) {
-      return json([{ name: toolName, toolType: 'partnerInitiated', description: 'Pre-draft generator', inputs: [], outputs: [] }]);
+      return json([{ name: toolName, toolType: 'partnerInitiated', description: 'Draft generator', inputs: [], outputs: [] }]);
     }
     if (url.endsWith('/partner-initiated/start')) return json(waiting);
     if (init?.method === 'DELETE') return new Response(null, { status: 204 });
@@ -56,6 +56,7 @@ afterEach(async () => {
 describe('TestingPanel partner-initiated execution', () => {
   it('shows the listening URL and can cancel without invoking the contract-based endpoint', async () => {
     await renderPanel();
+    expect(screen.getByRole('button', { name: 'Run Test' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Run Test' }));
 
     expect(await screen.findByText(/Waiting for a POST request on/)).toHaveTextContent(
@@ -85,7 +86,7 @@ describe('TestingPanel partner-initiated execution', () => {
         validation: {
           valid,
           toolName,
-          outputContentType: 'application/vnd.ms-dragon.rad.pre-draft-report+json',
+          outputContentType: 'application/vnd.ms-dragon.rad.draft-report+json',
           checks: [{
             check: 'Declared output schema',
             passed: valid,
@@ -109,6 +110,13 @@ describe('TestingPanel partner-initiated execution', () => {
     expect(screen.getByRole('heading', { name: 'Received Request Payload' })).toBeInTheDocument();
     expect(screen.getByText(/"identifier": "received-report"/)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Response Payload' })).toBeNull();
+
+    listenerStatus = waiting;
+    fireEvent.click(screen.getByRole('tab', { name: 'Results' }));
+    expect(screen.getByRole('button', { name: 'Re-run Execution' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Re-run Execution' }));
+    await screen.findByText(/Waiting for a POST request on/);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/partner-initiated/start'))).toHaveLength(2);
   });
 
   it('cancels listening when Reset Inputs is clicked', async () => {

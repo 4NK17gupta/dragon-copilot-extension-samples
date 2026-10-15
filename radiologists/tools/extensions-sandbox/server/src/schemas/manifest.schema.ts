@@ -16,7 +16,7 @@ export type InputContentType =
 
 export type OutputContentType =
   | 'application/vnd.ms-dragon.rad.quality-check-result+json'
-  | 'application/vnd.ms-dragon.rad.pre-draft-report+json';
+  | 'application/vnd.ms-dragon.rad.draft-report+json';
 
 export interface RelevanceFilteringCriteria {
   relevantBodyParts?: BodyPart[];

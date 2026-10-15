@@ -4,7 +4,7 @@ import { getInputSchemaForContentType } from '../services/validation.js';
 export interface ToolMetadata {
   name: string;
   description: string;
-  /** partnerInitiated tools are never called by Dragon Copilot, so the UI cannot execute them. */
+  /** Selects outbound execution or a partnerInitiated callback listener in the UI. */
   toolType: ExtensionManifest['tools'][number]['toolType'];
   /** Absent for tools without a callable endpoint (e.g. partnerInitiated). */
   endpoint?: string;

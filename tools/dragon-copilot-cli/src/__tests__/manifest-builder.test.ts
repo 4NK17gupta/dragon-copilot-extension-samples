@@ -239,7 +239,7 @@ describe('radiologists manifest builder', () => {
       {
         id: 'pre-draft-report',
         name: 'sampleRadiologyExtension',
-        description: 'Extension to provide pre-draft radiology report generation',
+        description: 'Extension to provide draft radiology report generation',
         version: '0.0.1',
         toolCount: 1,
       },
@@ -257,7 +257,7 @@ describe('radiologists manifest builder', () => {
     expect(tool.outputs).toEqual([
       {
         name: 'preDraftReportResult',
-        description: 'Pre-draft radiology report',
+        description: 'Draft radiology report',
         'content-type': DRAFT_REPORT_CONTENT_TYPE,
         schemaVersion: DEFAULT_PAYLOAD_SCHEMA_VERSION,
       },

@@ -38,7 +38,7 @@ Upload a manifest with a `partnerInitiated` tool, select it, and click **Run Tes
 Instead of calling an extension, the sandbox waits for one POST at the displayed URL:
 `/api/partnerInitiated/{auth.tenantId}/{toolName}`. Send **only the raw output object**
 with `Content-Type: application/json` (a vendor `application/*+json` type also works).
-For pre-draft reports, send the `draftReport` value from the ingest example, **not**
+For draft reports, send the `draftReport` value from the ingest example, **not**
 the full ingest envelope or a map keyed by output name.
 
 For example, from the sandbox directory in PowerShell:
@@ -50,7 +50,7 @@ Invoke-RestMethod -Method Post -Uri '<displayed callback URL>' -ContentType 'app
 ```
 
 The body is validated against **every** manifest output declaration, resolved by
-content type and exact `schemaVersion`. The pre-draft report schema version `1.0`
+content type and exact `schemaVersion`. The draft report schema version `1.0`
 is supported; unregistered types or versions fail validation rather than falling
 back. Valid bodies return 200; schema-invalid bodies return 422. Malformed JSON,
 unsupported media, and bodies over 1 MB complete the run as failures (400/415/413).
@@ -72,8 +72,11 @@ validation to the session's consolidated report, including invalid requests.
 The callback works through the UI's port 3000 proxy or directly on API port 4000.
 This is a local schema-testing listener, not the authenticated production ingestion
 API: it does not match patient orders or persist reports. Use synthetic data.
-The authoritative `radiologists/partner-initiated/pre-draft-report-schema.json`
+The authoritative `radiologists/partner-initiated/draft-report-schema.json`
 is synced into the server before dev/build/test and packaged with the built server.
+Its output content type is `application/vnd.ms-dragon.rad.draft-report+json`.
+The public capability identifier remains `preDraftReportGeneration`; existing
+tool names, template IDs, and example filenames are unchanged.
 
 ### Creating a manifest with the CLI wizard
 

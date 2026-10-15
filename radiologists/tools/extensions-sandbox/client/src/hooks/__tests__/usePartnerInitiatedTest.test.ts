@@ -28,7 +28,7 @@ function outputResult(valid: boolean): PartnerInitiatedResult {
     validation: {
       valid,
       toolName: 'preDraftTool',
-      outputContentType: 'application/vnd.ms-dragon.rad.pre-draft-report+json',
+      outputContentType: 'application/vnd.ms-dragon.rad.draft-report+json',
       checks: [{ check: 'Output schema', passed: valid }],
       summary: { passed: valid ? 1 : 0, failed: valid ? 0 : 1 },
       timestamp: '2026-10-08T00:00:00Z',

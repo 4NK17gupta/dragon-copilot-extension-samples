@@ -192,9 +192,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   // Load tools when the selected capability changes. A manifest change clears
   // selectedCapability first, so this refetches even when the name is reused.
   useEffect(() => {
+    setTools([]);
+    setSelectedTool('');
     if (!selectedCapability) {
-      setTools([]);
-      setSelectedTool('');
       return;
     }
 
@@ -250,7 +250,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     setExecuteError(null);
     setExpandedChecks(new Set());
     setInputValidationErrors(null);
-  }, [currentTool]);
+  }, [currentTool, cancelPartnerTest]);
 
   const handleRunTest = useCallback(async () => {
     if (!selectedCapability || !selectedTool) return;
@@ -496,8 +496,8 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
               )}
               {isPartnerInitiated && (
                 <p className="field-description" role="note">
-                  This tool is partnerInitiated: Dragon Copilot never calls it, so it cannot be run from the
-                  sandbox. Partners submit pre-draft reports through the partner-initiated API instead.
+                  This tool is partnerInitiated: Run Test starts a local listener for draft report
+                  submissions instead of calling the partner.
                 </p>
               )}
             </div>
@@ -523,7 +523,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                 appearance="primary"
                 icon={<CodeRegular />}
                 onClick={handleRunTest}
-                disabled={isExecuting || isPartnerInitiated}
+                disabled={isExecuting || partnerTest.isActive || !currentTool}
               >
                 {isExecuting ? 'Running...' : 'Run Test'}
               </Button>
@@ -713,7 +713,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                     appearance="primary"
                     icon={<CodeRegular />}
                     onClick={handleRunTest}
-                    disabled={isExecuting || isPartnerInitiated}
+                    disabled={isExecuting || partnerTest.isActive || !currentTool}
                   >
                     Re-run Execution
                   </Button>

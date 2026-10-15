@@ -66,21 +66,22 @@ describe('Manifest Schema Validation', () => {
     expect(validate(manifest)).toBe(false);
   });
 
-  it('rejects quality-check output for partnerInitiated tools', () => {
+  it('accepts declared output types independently of toolType, as the manifest contract allows', () => {
     const manifest = buildPartnerInitiatedManifest();
     manifest.tools[0].outputs[0]['content-type'] = 'application/vnd.ms-dragon.rad.quality-check-result+json';
-    expect(validate(manifest)).toBe(false);
+    expect(validate(manifest)).toBe(true);
+    expect(validate.errors).toBeNull();
   });
 
-  it('rejects pre-draft capability and output for contractBased tools', () => {
+  it('rejects draft report generation capability for contractBased tools', () => {
     const manifest = buildPartnerInitiatedManifest();
     manifest.tools[0] = { ...validManifestSimple.tools[0], ...manifest.tools[0], toolType: 'contractBased' };
     expect(validate(manifest)).toBe(false);
   });
 
-  it('keeps the pre-draft ingest request out of manifest inputs', () => {
+  it('keeps the draft ingest request out of manifest inputs', () => {
     const manifest = structuredClone(validManifestSimple);
-    manifest.tools[0].inputs[0]['content-type'] = 'application/vnd.ms-dragon.rad.pre-draft-report-ingest-request+json';
+    manifest.tools[0].inputs[0]['content-type'] = 'application/vnd.ms-dragon.rad.draft-report-ingest-request+json';
     expect(validate(manifest)).toBe(false);
   });
 
@@ -191,7 +192,7 @@ describe('Manifest Schema Validation', () => {
     function partnerInitiatedManifest(toolOverrides: Record<string, unknown> = {}) {
       return {
         name: 'partnerInitiatedExtension',
-        description: 'Submits pre-draft reports to Dragon Copilot',
+        description: 'Submits draft reports to Dragon Copilot',
         version: '1.0.0',
         radiologistsExtensibilityApiVersion: '0.1.0',
         auth: { tenantId: '12345678-1234-1234-1234-123456789abc' },

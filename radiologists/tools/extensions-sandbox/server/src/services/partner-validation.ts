@@ -3,10 +3,11 @@ import Ajv, { type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import type { ManifestTool } from '../schemas/manifest.schema.js';
 import type { ValidationCheck, ValidationResult } from './validation.js';
+import { DRAFT_REPORT_SCHEMA_PATH } from '../utils/schema-path.js';
 
 const schemaRegistry = new Map([
-  ['application/vnd.ms-dragon.rad.pre-draft-report+json', new Map([
-    ['1.0', new URL('../schemas/radiologists/pre-draft-report-schema.json', import.meta.url)],
+  ['application/vnd.ms-dragon.rad.draft-report+json', new Map([
+    ['1.0', DRAFT_REPORT_SCHEMA_PATH],
   ])],
 ]);
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -35,8 +36,8 @@ export function validatePartnerOutput(tool: ManifestTool, rawBody: unknown): Val
   for (const output of tool.outputs) {
     const contentType = output['content-type'];
     const label = `Output '${output.name}' (${contentType}, schemaVersion ${output.schemaVersion})`;
-    const schemaUrl = schemaRegistry.get(contentType)?.get(output.schemaVersion);
-    if (!schemaUrl) {
+    const schemaPath = schemaRegistry.get(contentType)?.get(output.schemaVersion);
+    if (!schemaPath) {
       checks.push({
         check: label,
         passed: false,
@@ -45,16 +46,16 @@ export function validatePartnerOutput(tool: ManifestTool, rawBody: unknown): Val
       continue;
     }
 
-    let validate = validators.get(schemaUrl.href);
+    let validate = validators.get(schemaPath);
     if (!validate) {
       try {
-        const schema = JSON.parse(readFileSync(schemaUrl, 'utf-8'));
+        const schema = JSON.parse(readFileSync(schemaPath, 'utf-8'));
         if (schema['x-ms-schema-version'] !== output.schemaVersion) {
           checks.push({ check: label, passed: false, error: 'Registered schema version does not match the declaration.' });
           continue;
         }
         validate = ajv.compile(schema);
-        validators.set(schemaUrl.href, validate);
+        validators.set(schemaPath, validate);
       } catch {
         checks.push({ check: label, passed: false, error: 'Output schema could not be loaded or compiled. Run the schema sync/build step.' });
         continue;

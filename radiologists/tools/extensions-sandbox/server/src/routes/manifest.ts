@@ -337,8 +337,8 @@ manifestRouter.post('/execute', async (req, res) => {
     log.warn(`Execute rejected: tool '${toolName}' is partnerInitiated and cannot be executed.`);
     res.status(400).json({
       error:
-        `Tool '${toolName}' is partnerInitiated: Dragon Copilot never calls it, so it cannot be executed in the sandbox. ` +
-        'Partners submit pre-draft reports through the partner-initiated API (see radiologists/partner-initiated).',
+        `Tool '${toolName}' is partnerInitiated: Dragon Copilot never calls it, so it cannot use the execute endpoint. ` +
+        'Use Run Test to start a local listener for draft report submissions instead.',
     });
     return;
   }

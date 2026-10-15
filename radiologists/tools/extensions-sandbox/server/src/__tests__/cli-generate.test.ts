@@ -94,7 +94,7 @@ describe('GET /api/cli/options', () => {
     ]);
     expect(options.capabilities).toEqual([
       { name: 'Report Optimization', value: 'qualityCheck' },
-      { name: 'Pre-Draft Report Generation', value: 'preDraftReportGeneration' },
+      { name: 'Draft Report Generation', value: 'preDraftReportGeneration' },
     ]);
     expect(options.bodyParts.length).toBeGreaterThan(0);
     expect(options.modalities.length).toBeGreaterThan(0);

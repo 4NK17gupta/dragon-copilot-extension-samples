@@ -110,19 +110,6 @@ describe('OpenAPI spec sync', () => {
     expect(existsSync(OPENAPI_SPEC_PATH)).toBe(true);
   });
 
-  describe('Partner output schema sync', () => {
-    it('packages the authoritative pre-draft schema, including its version', () => {
-      const authoritative = JSON.parse(readFileSync(resolve(
-        __dirname, '..', '..', '..', '..', '..', 'partner-initiated', 'pre-draft-report-schema.json',
-      ), 'utf-8'));
-      const synced = JSON.parse(readFileSync(resolve(
-        __dirname, '..', 'schemas', 'radiologists', 'pre-draft-report-schema.json',
-      ), 'utf-8'));
-      expect(synced).toEqual(authoritative);
-      expect(synced['x-ms-schema-version']).toBe('1.0');
-    });
-  });
-
   it('matches the radiologists authoritative source (no drift)', () => {
     expect(existsSync(RADIOLOGISTS_SPEC_PATH)).toBe(true);
 
@@ -170,6 +157,11 @@ describe('CLI manifest core sync', () => {
 
 describe('Partner-initiated schema sync', () => {
   const syncedSchemaPaths = [DRAFT_REPORT_SCHEMA_PATH, DRAFT_REPORT_INGEST_REQUEST_SCHEMA_PATH];
+
+  it('packages draft report schema version 1.0', () => {
+    const schema = JSON.parse(readFileSync(DRAFT_REPORT_SCHEMA_PATH, 'utf-8'));
+    expect(schema['x-ms-schema-version']).toBe('1.0');
+  });
 
   it.each(syncedSchemaPaths)('has %s synced into the sandbox', (sandboxPath) => {
     expect(existsSync(sandboxPath)).toBe(true);

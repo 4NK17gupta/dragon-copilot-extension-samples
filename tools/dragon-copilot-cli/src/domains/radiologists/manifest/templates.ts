@@ -64,7 +64,7 @@ const templates: Record<string, TemplateConfig> = {
   },
   'pre-draft-report': {
     name: 'sampleRadiologyExtension',
-    description: 'Extension to provide pre-draft radiology report generation',
+    description: 'Extension to provide draft radiology report generation',
     version: '0.0.1',
     radiologistsExtensibilityApiVersion: '1.0.0',
     tools: [
@@ -72,11 +72,11 @@ const templates: Record<string, TemplateConfig> = {
         name: 'preDraftReportGeneratorTool',
         toolType: PARTNER_INITIATED_TOOL_TYPE,
         capability: PRE_DRAFT_REPORT_GENERATION_CAPABILITY,
-        description: 'Tool to generate a pre-draft radiology report',
+        description: 'Tool to generate a draft radiology report',
         outputs: [
           {
             name: 'preDraftReportResult',
-            description: 'Pre-draft radiology report',
+            description: 'Draft radiology report',
             'content-type': DRAFT_REPORT_CONTENT_TYPE,
             schemaVersion: DEFAULT_PAYLOAD_SCHEMA_VERSION
           }

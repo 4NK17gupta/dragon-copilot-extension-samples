@@ -33,7 +33,7 @@ const baseTool = {
 };
 
 describe('Capabilities Parser', () => {
-  it('labels pre-draft report generation and counts every supporting tool', () => {
+  it('labels draft report generation and counts every supporting tool', () => {
     const manifest: ExtensionManifest = JSON.parse(readFileSync(
       new URL('./fixtures/valid-manifest-partner-initiated.json', import.meta.url), 'utf-8',
     ));
@@ -41,8 +41,8 @@ describe('Capabilities Parser', () => {
 
     expect(parseCapabilities(manifest)).toEqual([{
       name: 'preDraftReportGeneration',
-      displayName: 'Pre Draft Report Generation',
-      description: 'Pre Draft Report Generation capability',
+      displayName: 'Draft Report Generation',
+      description: 'Draft Report Generation capability',
       toolCount: 2,
     }]);
   });
@@ -198,8 +198,8 @@ describe('Capabilities Parser', () => {
       },
       {
         name: 'preDraftReportGeneration',
-        displayName: 'Pre-Draft Report Generation',
-        description: 'Pre-Draft Report Generation capability',
+        displayName: 'Draft Report Generation',
+        description: 'Draft Report Generation capability',
         toolCount: 1,
       },
     ]);

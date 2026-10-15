@@ -172,11 +172,11 @@ describe('POST /api/manifest/execute – partnerInitiated tools', () => {
           name: 'pre-draft',
           toolType: 'partnerInitiated',
           capability: 'preDraftReportGeneration',
-          description: 'Submits pre-draft reports',
+          description: 'Submits draft reports',
           outputs: [
             {
               name: 'draft',
-              description: 'Pre-draft report',
+              description: 'Draft report',
               'content-type': 'application/vnd.ms-dragon.rad.draft-report+json',
               schemaVersion: '0.1',
             },
@@ -196,7 +196,8 @@ describe('POST /api/manifest/execute – partnerInitiated tools', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toContain('partnerInitiated');
-    expect(body.error).toContain('cannot be executed');
+    expect(body.error).toContain('cannot use the execute endpoint');
+    expect(body.error).toContain('Use Run Test to start a local listener');
     expect(receivedRequests).toHaveLength(0);
   });
 });

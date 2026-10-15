@@ -42,7 +42,7 @@ export const TOOL_TYPE_CHOICES: ManifestChoice<ToolType>[] = [
 
 export const CAPABILITY_CHOICES: ManifestChoice<Capability>[] = [
   { name: 'Report Optimization', value: DEFAULT_CAPABILITY },
-  { name: 'Pre-Draft Report Generation', value: PRE_DRAFT_REPORT_GENERATION_CAPABILITY },
+  { name: 'Draft Report Generation', value: PRE_DRAFT_REPORT_GENERATION_CAPABILITY },
 ];
 
 /**

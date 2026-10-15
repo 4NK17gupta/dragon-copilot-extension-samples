@@ -54,7 +54,7 @@ const sampleManifest = {
 } as unknown as ExtensionManifest;
 
 describe('Tool Metadata - getToolsForCapability', () => {
-  it('returns all pre-draft tools without requiring endpoints or inputs, excluding other capabilities', () => {
+  it('returns all draft tools without requiring endpoints or inputs, excluding other capabilities', () => {
     const manifest: ExtensionManifest = JSON.parse(readFileSync(
       new URL('./fixtures/valid-manifest-partner-initiated.json', import.meta.url), 'utf-8',
     ));
@@ -71,7 +71,7 @@ describe('Tool Metadata - getToolsForCapability', () => {
         name: 'preDraftReportGeneratorTool',
         toolType: 'partnerInitiated',
         inputs: [],
-        outputs: [{ name: 'preDraftReportResult', contentType: 'application/vnd.ms-dragon.rad.pre-draft-report+json' }],
+        outputs: [{ name: 'preDraftReportResult', contentType: 'application/vnd.ms-dragon.rad.draft-report+json' }],
       }),
     ]));
     expect(tools?.every((tool) => tool.endpoint === undefined)).toBe(true);
@@ -205,7 +205,7 @@ describe('Tool Metadata - getToolsForCapability', () => {
           name: 'pre-draft',
           toolType: 'partnerInitiated',
           capability: 'preDraftReportGeneration',
-          description: 'Submits pre-draft reports',
+          description: 'Submits draft reports',
           outputs: baseTool.outputs,
         },
       ],

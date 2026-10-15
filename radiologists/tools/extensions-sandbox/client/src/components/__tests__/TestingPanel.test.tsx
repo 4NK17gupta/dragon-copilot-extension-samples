@@ -74,18 +74,18 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
 });
 
-describe('TestingPanel pre-draft tool selection', () => {
+describe('TestingPanel draft tool selection', () => {
   const fixture = JSON.parse(readFileSync(
     resolve(__dirname, '../../../../server/src/__tests__/fixtures/valid-manifest-partner-initiated.json'),
     'utf-8',
   ));
   const preDraftTools = [
     { name: fixture.tools[0].name, description: fixture.tools[0].description, inputs: [], outputs: [] },
-    { name: 'secondPreDraftTool', description: 'Another pre-draft generator', inputs: [], outputs: [] },
+    { name: 'secondPreDraftTool', description: 'Another draft generator', inputs: [], outputs: [] },
   ];
   const capabilities = [
     { name: 'qualityCheck', displayName: 'Report Optimization', toolCount: 1 },
-    { name: 'preDraftReportGeneration', displayName: 'Pre Draft Report Generation', toolCount: 2 },
+    { name: 'preDraftReportGeneration', displayName: 'Draft Report Generation', toolCount: 2 },
   ];
   const info = { ...manifestInfo, toolCount: 3, capabilities: capabilities.map((cap) => cap.name) };
 
@@ -101,7 +101,7 @@ describe('TestingPanel pre-draft tool selection', () => {
     });
   });
 
-  it('lists only tools supporting Pre Draft Report Generation and allows selecting any of them', async () => {
+  it('lists only tools supporting Draft Report Generation and allows selecting any of them', async () => {
     await renderPanel(info);
     expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue('qualityCheckTool');
 
@@ -118,7 +118,7 @@ describe('TestingPanel pre-draft tool selection', () => {
     expect(screen.queryByRole('option', { name: 'qualityCheckTool' })).toBeNull();
     fireEvent.change(screen.getByRole('combobox', { name: 'Tool' }), { target: { value: 'secondPreDraftTool' } });
     expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue('secondPreDraftTool');
-    expect(screen.getByText('Another pre-draft generator')).toBeInTheDocument();
+    expect(screen.getByText('Another draft generator')).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Capability' }), { target: { value: 'qualityCheck' } });
     await waitFor(() =>
@@ -126,7 +126,7 @@ describe('TestingPanel pre-draft tool selection', () => {
     );
   });
 
-  it('selects the fixture tool for a manifest with only pre-draft report generation', async () => {
+  it('selects the fixture tool for a manifest with only draft report generation', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/api/manifest/capabilities')) return json([capabilities[1]]);
@@ -135,7 +135,7 @@ describe('TestingPanel pre-draft tool selection', () => {
     });
     await renderPanel({ ...info, toolCount: 1, capabilities: ['preDraftReportGeneration'] });
 
-    expect(screen.getByRole('combobox', { name: 'Capability' })).toHaveDisplayValue('Pre Draft Report Generation');
+    expect(screen.getByRole('combobox', { name: 'Capability' })).toHaveDisplayValue('Draft Report Generation');
     expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue(fixture.tools[0].name);
   });
 
@@ -153,6 +153,7 @@ describe('TestingPanel pre-draft tool selection', () => {
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/manifest/capabilities/preDraftReportGeneration/tools'));
     expect(screen.getByRole('combobox', { name: 'Tool' })).not.toHaveValue('qualityCheckTool');
+    expect(screen.getByRole('button', { name: 'Run Test' })).toBeDisabled();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Capability' }), { target: { value: 'qualityCheck' } });
     await waitFor(() =>
@@ -161,6 +162,23 @@ describe('TestingPanel pre-draft tool selection', () => {
     await act(async () => { resolvePreDraft(json(preDraftTools)); });
 
     expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue('qualityCheckTool');
+    expect(screen.getByRole('button', { name: 'Run Test' })).toBeEnabled();
+  });
+
+  it('keeps execution disabled when the new capability has no tools', async () => {
+    const normalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL) =>
+      String(input).endsWith('/preDraftReportGeneration/tools') ? Promise.resolve(json([])) : normalFetch(input),
+    );
+    await renderPanel(info);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Capability' }), {
+      target: { value: 'preDraftReportGeneration' },
+    });
+    await act(async () => {});
+
+    expect(screen.queryByRole('option', { name: 'qualityCheckTool' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Run Test' })).toBeDisabled();
   });
 });
 
