@@ -845,7 +845,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
             <DragonCopilotPreview
               toolType={currentTool?.toolType}
               result={result}
-              executionError={executeError}
+              executionError={isPartnerInitiated && partnerTest.error ? { message: partnerTest.error } : executeError}
               toolName={selectedTool || undefined}
               extensionName={manifestInfo.name}
             />

@@ -75,6 +75,14 @@ API: it does not match patient orders or persist reports. Use synthetic data.
 The authoritative `radiologists/partner-initiated/draft-report-schema.json`
 is synced into the server before dev/build/test and packaged with the built server.
 Its output content type is `application/vnd.ms-dragon.rad.draft-report+json`.
+After a valid submission, **Dragon Copilot Preview** displays an **AI draft** card
+with the submitted sections sorted by `sectionOrder`, uppercase section labels,
+and AI/third-party disclaimers. A `title` section appears without a label; no
+title or clinical content is inferred from study metadata. Both `plain_text`
+(preserving line breaks) and `markdown` section content are supported. Markdown
+HTML is displayed as text, links are non-interactive, and images are represented
+by their alternate text without loading remote resources. Invalid submissions
+show an error rather than a draft; the full payload remains in **Outputs**.
 The public capability identifier remains `preDraftReportGeneration`; existing
 tool names, template IDs, and example filenames are unchanged.
 

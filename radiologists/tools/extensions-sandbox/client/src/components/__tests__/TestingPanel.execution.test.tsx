@@ -13,6 +13,10 @@ const toolName: string = fixture.tools[0].name;
 const info = { name: fixture.name, version: fixture.version, toolCount: 1, capabilities: ['preDraftReportGeneration'] };
 const callbackPath = `/api/partnerInitiated/${fixture.auth.tenantId}/${toolName}`;
 const waiting = { runId: 'partner-test', status: 'waiting', callbackPath };
+const draftReport = JSON.parse(readFileSync(
+  resolve(__dirname, '../../../../../../partner-initiated/samples/PreDraftReportGeneration-Ingest-Request-Example.json'),
+  'utf-8',
+)).draftReport;
 let listenerStatus: unknown;
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 
@@ -60,12 +64,12 @@ afterEach(async () => {
 });
 
 describe('TestingPanel partner-initiated execution', () => {
-  it('shows the preview placeholder before a partner-initiated tool has run', async () => {
+  it('shows the empty AI draft before a partner-initiated tool has run', async () => {
     await renderPanel();
     fireEvent.click(screen.getByRole('tab', { name: 'Dragon Copilot Preview' }));
 
-    expect(screen.getByText('Work in progress')).toBeVisible();
-    expect(document.querySelector('.preview-tab')?.textContent).toBe('Work in progress');
+    expect(screen.getByRole('heading', { name: 'AI draft' })).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent('No draft report received yet');
   });
 
   it('shows the listening URL and can cancel without invoking the contract-based endpoint', async () => {
@@ -104,7 +108,7 @@ describe('TestingPanel partner-initiated execution', () => {
       result: {
         status: valid ? 200 : 422,
         statusText: valid ? 'OK' : 'Unprocessable Entity',
-        rawBody: { identifier: 'received-report' },
+        rawBody: valid ? draftReport : { identifier: 'received-report' },
         validation: {
           valid,
           toolName,
@@ -132,11 +136,18 @@ describe('TestingPanel partner-initiated execution', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Outputs' }));
     expect(screen.getByRole('heading', { name: 'Received Request Payload' })).toBeInTheDocument();
-    expect(screen.getByText(/"identifier": "received-report"/)).toBeInTheDocument();
+    expect(screen.getByText(valid ? new RegExp(draftReport.identifier) : /"identifier": "received-report"/)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Response Payload' })).toBeNull();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Dragon Copilot Preview' }));
-    expect(document.querySelector('.preview-tab')?.textContent).toBe('Work in progress');
+    if (valid) {
+      expect(screen.getByRole('heading', { name: 'AI draft' })).toBeVisible();
+      expect(screen.getByText('No acute cardiopulmonary abnormality.')).toBeVisible();
+      expect(screen.getByText('Third-party generated content')).toBeVisible();
+    } else {
+      expect(screen.getByRole('status')).toHaveTextContent('HTTP 422');
+      expect(screen.queryByRole('region', { name: 'AI draft' })).toBeNull();
+    }
 
     listenerStatus = waiting;
     fireEvent.click(screen.getByRole('tab', { name: 'Results' }));
@@ -144,6 +155,11 @@ describe('TestingPanel partner-initiated execution', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Re-run Execution' }));
     await screen.findByRole('dialog', { name: 'Waiting for request' });
     expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/partner-initiated/start'))).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop listening' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    fireEvent.click(screen.getByRole('tab', { name: 'Dragon Copilot Preview' }));
+    expect(screen.getByRole('status')).toHaveTextContent('No draft report received yet');
+    expect(screen.queryByText('No acute cardiopulmonary abnormality.')).toBeNull();
   });
 
   it.each(['close button', 'Escape'])('stops listening when dismissed with %s', async (dismissal) => {
@@ -191,6 +207,9 @@ describe('TestingPanel partner-initiated execution', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Listener unavailable');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByRole('button', { name: 'Run Test' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('tab', { name: 'Dragon Copilot Preview' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Listener unavailable');
+    expect(screen.queryByRole('region', { name: 'AI draft' })).toBeNull();
   });
 });
 
