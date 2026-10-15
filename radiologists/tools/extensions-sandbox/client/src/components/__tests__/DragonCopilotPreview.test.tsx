@@ -41,6 +41,40 @@ const cardResult = {
 };
 
 describe('DragonCopilotPreview', () => {
+  it.each([
+    { state: 'before a run', result: null, executionError: null },
+    { state: 'after a run', result: recommendationResult, executionError: null },
+    { state: 'after a failed run', result: null, executionError: { message: 'Run failed' } },
+  ])('shows only the partner-initiated placeholder $state', ({ result, executionError }) => {
+    const { container } = render(
+      <DragonCopilotPreview
+        toolType="partnerInitiated"
+        result={result}
+        executionError={executionError}
+        toolName="draftReportTool"
+      />,
+    );
+
+    expect(container.textContent).toBe('Work in progress');
+    expect(screen.getByText('Work in progress')).toBeVisible();
+    expect(container.querySelector('.dc-preview-frame')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Result source' })).toBeNull();
+  });
+
+  it('switches between isolated partner-initiated and contract-based previews', () => {
+    const { container, rerender } = render(
+      <DragonCopilotPreview toolType="contractBased" result={recommendationResult} />,
+    );
+    expect(screen.getByRole('heading', { name: 'Report optimization (1)' })).toBeInTheDocument();
+
+    rerender(<DragonCopilotPreview toolType="partnerInitiated" result={recommendationResult} />);
+    expect(container.textContent).toBe('Work in progress');
+
+    rerender(<DragonCopilotPreview toolType="contractBased" result={recommendationResult} />);
+    expect(screen.getByRole('heading', { name: 'Report optimization (1)' })).toBeInTheDocument();
+    expect(screen.queryByText('Work in progress')).toBeNull();
+  });
+
   it('shows the Report optimization card in its not-run state before a tool has run', () => {
     render(<DragonCopilotPreview result={null} toolName="sampleQualityCheckTool" />);
 

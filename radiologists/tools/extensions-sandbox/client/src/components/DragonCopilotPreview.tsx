@@ -16,6 +16,7 @@ import type {
 } from '../preview';
 
 export interface DragonCopilotPreviewProps {
+  toolType?: 'contractBased' | 'partnerInitiated';
   /**
    * The latest execution result, in the shape the active source's provider
    * expects. For `extension-api` this is the sandbox `ExecuteResult`.
@@ -32,6 +33,20 @@ export interface DragonCopilotPreviewProps {
    * Shown instead of the not-run state so a failed run never reads as "no run".
    */
   executionError?: { message: string } | null;
+}
+
+export function DragonCopilotPreview({ toolType, ...props }: DragonCopilotPreviewProps) {
+  return toolType === 'partnerInitiated'
+    ? <PartnerInitiatedPreview />
+    : <ContractBasedPreview {...props} />;
+}
+
+function PartnerInitiatedPreview() {
+  return (
+    <div className="dc-preview">
+      <p className="dc-preview-empty">Work in progress</p>
+    </div>
+  );
 }
 
 type ContentBlock = Exclude<PreviewBlock, MessageBlock>;
@@ -188,13 +203,13 @@ function isMessage(block: PreviewBlock): block is MessageBlock {
  * Dragon Copilot. Rendering goes through the result-source providers, so adding
  * pixel-based AI app or PowerScribe results is a provider change, not a UI change.
  */
-export function DragonCopilotPreview({
+function ContractBasedPreview({
   result,
   source = 'extension-api',
   toolName,
   extensionName,
   executionError,
-}: DragonCopilotPreviewProps) {
+}: Omit<DragonCopilotPreviewProps, 'toolType'>) {
   const [activeSource, setActiveSource] = useState<ResultSource>(source);
   // Deliberately not memoized: the registry is mutable, so a memo keyed on `[]`
   // would pin whatever was registered at first render. The list is three entries.

@@ -60,6 +60,14 @@ afterEach(async () => {
 });
 
 describe('TestingPanel partner-initiated execution', () => {
+  it('shows the preview placeholder before a partner-initiated tool has run', async () => {
+    await renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: 'Dragon Copilot Preview' }));
+
+    expect(screen.getByText('Work in progress')).toBeVisible();
+    expect(document.querySelector('.preview-tab')?.textContent).toBe('Work in progress');
+  });
+
   it('shows the listening URL and can cancel without invoking the contract-based endpoint', async () => {
     await renderPanel();
     const runButton = screen.getByRole('button', { name: 'Run Test' });
@@ -126,6 +134,9 @@ describe('TestingPanel partner-initiated execution', () => {
     expect(screen.getByRole('heading', { name: 'Received Request Payload' })).toBeInTheDocument();
     expect(screen.getByText(/"identifier": "received-report"/)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Response Payload' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Dragon Copilot Preview' }));
+    expect(document.querySelector('.preview-tab')?.textContent).toBe('Work in progress');
 
     listenerStatus = waiting;
     fireEvent.click(screen.getByRole('tab', { name: 'Results' }));
@@ -220,5 +231,9 @@ describe('TestingPanel contract-based execution regression', () => {
     expect(screen.getByRole('heading', { name: 'Request Payload' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Response Payload' })).toBeInTheDocument();
     expect(screen.getByText(/"qualityCheckResult"/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Dragon Copilot Preview' }));
+    expect(screen.getByRole('heading', { name: 'Report optimization (0)' })).toBeInTheDocument();
+    expect(screen.queryByText('Work in progress')).toBeNull();
   });
 });
