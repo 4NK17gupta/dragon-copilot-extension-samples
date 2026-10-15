@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { TestingPanel } from '../TestingPanel';
 
@@ -31,6 +31,11 @@ async function renderPanel() {
 }
 
 beforeEach(() => {
+  // Tabster needs layout measurements to identify focusable elements; jsdom has no layout.
+  vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 1024, 768));
+  vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.parentElement;
+  });
   listenerStatus = waiting;
   fetchMock = vi.fn(async (input, init) => {
     const url = String(input);
@@ -50,29 +55,38 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => { cleanup(); });
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe('TestingPanel partner-initiated execution', () => {
   it('shows the listening URL and can cancel without invoking the contract-based endpoint', async () => {
     await renderPanel();
-    expect(screen.getByRole('button', { name: 'Run Test' })).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Run Test' }));
+    const runButton = screen.getByRole('button', { name: 'Run Test' });
+    expect(runButton).toBeEnabled();
+    runButton.focus();
+    fireEvent.click(runButton);
 
-    expect(await screen.findByText(/Waiting for a POST request on/)).toHaveTextContent(
+    const dialog = await screen.findByRole('dialog', { name: 'Waiting for request' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(within(dialog).getByText(/Waiting for a POST request on/)).toHaveTextContent(
       new URL(callbackPath, window.location.origin).href,
     );
-    expect(screen.getByText('Send the raw output payload as JSON, without an ingest envelope.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Run Test' })).toBeDisabled();
+    expect(within(dialog).getByText('Send the raw output payload as JSON, without an ingest envelope.')).toBeInTheDocument();
+    expect(await within(dialog).findByRole('progressbar', { name: 'Waiting for request' })).not.toHaveAttribute('aria-valuenow');
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    expect(runButton).toBeDisabled();
     expect(screen.queryByText('Authentication')).toBeNull();
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/execute'))).toBe(false);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel Listening' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Stop listening' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Run Test' })).toBeEnabled());
     expect(fetchMock).toHaveBeenCalledWith('/api/manifest/partner-initiated/partner-test', expect.objectContaining({
       method: 'DELETE',
     }));
     expect(screen.queryByText(/Waiting for a POST request on/)).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(runButton).toHaveFocus());
   });
 
   it.each([true, false])('displays received request validation (valid=%s) and raw output', async (valid) => {
@@ -105,6 +119,8 @@ describe('TestingPanel partner-initiated execution', () => {
     expect(screen.getByRole('list', { name: 'Validation checks' })).toHaveTextContent(valid ? 'PASS' : 'FAIL');
     if (!valid) expect(screen.getByRole('alert')).toHaveTextContent('Missing required field reportContent');
     expect(screen.queryByText(/Waiting for a POST request on/)).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Results' })).toHaveFocus());
 
     fireEvent.click(screen.getByRole('tab', { name: 'Outputs' }));
     expect(screen.getByRole('heading', { name: 'Received Request Payload' })).toBeInTheDocument();
@@ -115,19 +131,55 @@ describe('TestingPanel partner-initiated execution', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Results' }));
     expect(screen.getByRole('button', { name: 'Re-run Execution' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Re-run Execution' }));
-    await screen.findByText(/Waiting for a POST request on/);
+    await screen.findByRole('dialog', { name: 'Waiting for request' });
     expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/partner-initiated/start'))).toHaveLength(2);
   });
 
-  it('cancels listening when Reset Inputs is clicked', async () => {
+  it.each(['close button', 'Escape'])('stops listening when dismissed with %s', async (dismissal) => {
     await renderPanel();
     fireEvent.click(screen.getByRole('button', { name: 'Run Test' }));
-    await screen.findByText(/Waiting for a POST request on/);
-    fireEvent.click(screen.getByRole('button', { name: 'Reset Inputs' }));
-    await waitFor(() => expect(screen.queryByText(/Waiting for a POST request on/)).toBeNull());
+    const dialog = await screen.findByRole('dialog', { name: 'Waiting for request' });
+    if (dismissal === 'close button') {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Stop listening and close' }));
+    } else {
+      fireEvent.keyDown(dialog, { key: 'Escape' });
+    }
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(fetchMock).toHaveBeenCalledWith('/api/manifest/partner-initiated/partner-test', expect.objectContaining({
       method: 'DELETE',
     }));
+  });
+
+  it('keeps the dialog open and disables dismissal while the listener is stopping', async () => {
+    const originalFetch = fetchMock.getMockImplementation()!;
+    let finishStop!: (response: Response) => void;
+    fetchMock.mockImplementation((input, init) => init?.method === 'DELETE'
+      ? new Promise<Response>((resolve) => { finishStop = resolve; })
+      : originalFetch(input, init));
+    await renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Run Test' }));
+    await screen.findByRole('dialog', { name: 'Waiting for request' });
+    fireEvent.click(screen.getByRole('button', { name: 'Stop listening' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Stopping listener...' });
+    expect(within(dialog).getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
+    for (const button of within(dialog).getAllByRole('button')) expect(button).toBeDisabled();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1);
+    await act(async () => { finishStop(new Response(null, { status: 204 })); });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('closes the dialog and surfaces a listener startup failure', async () => {
+    const originalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => String(input).endsWith('/partner-initiated/start')
+      ? new Response(JSON.stringify({ error: 'Listener unavailable' }), { status: 500 })
+      : originalFetch(input, init));
+    await renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Run Test' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Listener unavailable');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Run Test' })).toBeEnabled();
   });
 });
 

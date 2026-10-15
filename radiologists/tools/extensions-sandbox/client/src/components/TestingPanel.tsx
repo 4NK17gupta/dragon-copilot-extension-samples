@@ -1,14 +1,21 @@
 import { useState, useEffect, useCallback, useRef, useId } from 'react';
 import {
   Button,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
   Dropdown,
   Option,
+  ProgressBar,
   Tab,
   TabList,
   Spinner,
   Link,
 } from '@fluentui/react-components';
-import { ArrowCounterclockwiseRegular, CodeRegular, CopyRegular } from '@fluentui/react-icons';
+import { ArrowCounterclockwiseRegular, CodeRegular, CopyRegular, DismissRegular } from '@fluentui/react-icons';
 import { DynamicForm, getFieldPaths, SchemaProperty } from './DynamicForm';
 import type { DynamicFormHandle } from './DynamicForm';
 import { AuthSettings } from './AuthSettings';
@@ -90,6 +97,7 @@ interface TestingPanelProps {
 export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelProps) {
   const capabilityId = useId();
   const toolId = useId();
+  const listenerDescriptionId = useId();
   const [activeTab, setActiveTab] = useState<string>('setup');
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [selectedCapability, setSelectedCapability] = useState<string>('');
@@ -106,6 +114,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   const [inputValidationErrors, setInputValidationErrors] = useState<InputValidationError[] | null>(null);
   const [receivedUrl, setReceivedUrl] = useState<string | null>(null);
   const formRef = useRef<DynamicFormHandle>(null);
+  const runTestButtonRef = useRef<HTMLButtonElement>(null);
+  const resultsTabRef = useRef<HTMLButtonElement>(null);
+  const wasListening = useRef(false);
 
   const handlePartnerResult = useCallback((data: PartnerInitiatedResult, elapsedMs: number, url: string) => {
     setResult(data);
@@ -123,6 +134,14 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     onComplete: handlePartnerResult,
   });
   const { start: startPartnerTest, cancel: cancelPartnerTest } = partnerTest;
+
+  useEffect(() => {
+    if (wasListening.current && !partnerTest.isActive) {
+      const focusTarget = activeTab === 'results' ? resultsTabRef.current : runTestButtonRef.current;
+      focusTarget?.focus();
+    }
+    wasListening.current = partnerTest.isActive;
+  }, [partnerTest.isActive, activeTab]);
 
   useEffect(() => {
     setReceivedUrl(null);
@@ -412,6 +431,8 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   const selectedCapabilityLabel = selectedCapabilityEntry
     ? selectedCapabilityEntry.displayName ?? selectedCapabilityEntry.name
     : selectedCapability;
+  const listenerStatus = partnerTest.phase === 'starting' ? 'Starting listener...' :
+    partnerTest.phase === 'stopping' ? 'Stopping listener...' : 'Waiting for request';
 
   return (
     <div className="testing-panel">
@@ -422,28 +443,51 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
         onTabSelect={(_, data) => setActiveTab(data.value as string)}
       >
         <Tab value="setup">Setup</Tab>
-        <Tab value="results">Results</Tab>
+        <Tab value="results" ref={resultsTabRef}>Results</Tab>
         <Tab value="outputs">Outputs</Tab>
         <Tab value="preview">Dragon Copilot Preview</Tab>
       </TabList>
 
-      {partnerTest.isActive && (
-        <div className="partner-listener-status" role="status" aria-live="polite">
-          <Spinner size="small" label={
-            partnerTest.phase === 'starting' ? 'Starting listener...' :
-              partnerTest.phase === 'stopping' ? 'Stopping listener...' : 'Waiting for request...'
-          } />
-          {partnerTest.callbackUrl && (
-            <>
-              <p>Waiting for a POST request on <code>{partnerTest.callbackUrl}</code></p>
-              <p>Send the raw output payload as JSON, without an ingest envelope.</p>
-            </>
-          )}
-          <Button onClick={() => { void cancelPartnerTest(); }} disabled={partnerTest.phase === 'stopping'}>
-            Cancel Listening
-          </Button>
-        </div>
-      )}
+      <Dialog
+        open={partnerTest.isActive}
+        onOpenChange={(_, data) => {
+          if (!data.open && partnerTest.phase !== 'stopping') void cancelPartnerTest();
+        }}
+      >
+        <DialogSurface aria-describedby={partnerTest.callbackUrl ? listenerDescriptionId : undefined}>
+          <DialogBody>
+            <DialogTitle action={
+              <Button
+                appearance="subtle"
+                aria-label="Stop listening and close"
+                icon={<DismissRegular />}
+                onClick={() => { void cancelPartnerTest(); }}
+                disabled={partnerTest.phase === 'stopping'}
+              />
+            }>
+              <span aria-live="polite">{listenerStatus}</span>
+            </DialogTitle>
+            <DialogContent className="partner-listener-content">
+              <ProgressBar aria-label={listenerStatus} />
+              {partnerTest.callbackUrl && (
+                <div id={listenerDescriptionId}>
+                  <p>Waiting for a POST request on <code>{partnerTest.callbackUrl}</code></p>
+                  <p>Send the raw output payload as JSON, without an ingest envelope.</p>
+                </div>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button
+                appearance="primary"
+                onClick={() => { void cancelPartnerTest(); }}
+                disabled={partnerTest.phase === 'stopping'}
+              >
+                Stop listening
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
       {partnerTest.error && <div className="execute-error" role="alert">{partnerTest.error}</div>}
 
       <div className="tab-content">
@@ -520,6 +564,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
             <div className="action-bar">
               <Button
+                ref={runTestButtonRef}
                 appearance="primary"
                 icon={<CodeRegular />}
                 onClick={handleRunTest}
