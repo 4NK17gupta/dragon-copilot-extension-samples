@@ -24,7 +24,7 @@ Consider the following sample manifest defining an extension with a single `part
 
 ```yaml
 name: sampleRadiologyExtension
-description: Sample extension providing pre-draft radiology report generation
+description: Sample extension providing draft radiology report generation
 version: 1.0.0
 radiologistsExtensibilityApiVersion: 1.0.0
 auth:
@@ -33,7 +33,7 @@ tools:
   - name: preDraftReportGeneratorTool
     toolType: partnerInitiated
     capability: preDraftReportGeneration
-    description: Tool to generate a pre-draft radiology report
+    description: Tool to generate a draft radiology report
     outputs:
       - name: preDraftReportResult
         description: Pre-draft radiology report

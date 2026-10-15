@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "DraftReport",
-  "description": "An AI-generated pre-draft radiology report, submitted by a partnerInitiated tool implementing the preDraftReportGeneration capability. Carried as the 'draftReport' member of a submission and referenced from a manifest as 'application/vnd.ms-dragon.rad.draft-report+json'.",
+  "description": "An AI-generated draft radiology report, submitted by a partnerInitiated tool implementing the preDraftReportGeneration capability. Carried as the 'draftReport' member of a submission and referenced from a manifest as 'application/vnd.ms-dragon.rad.draft-report+json'.",
   "x-ms-schema-version": "1.0",
   "type": "object",
   "required": [
@@ -303,4 +303,3 @@
     }
   }
 }
-

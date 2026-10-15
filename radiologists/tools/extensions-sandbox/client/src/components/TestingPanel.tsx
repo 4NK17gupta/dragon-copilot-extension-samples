@@ -1,18 +1,27 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useId } from 'react';
 import {
   Button,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
   Dropdown,
   Option,
+  ProgressBar,
   Tab,
   TabList,
   Spinner,
   Link,
 } from '@fluentui/react-components';
-import { ArrowCounterclockwiseRegular, CodeRegular, CopyRegular } from '@fluentui/react-icons';
+import { ArrowCounterclockwiseRegular, CodeRegular, CopyRegular, DismissRegular } from '@fluentui/react-icons';
 import { DynamicForm, getFieldPaths, SchemaProperty } from './DynamicForm';
 import type { DynamicFormHandle } from './DynamicForm';
 import { AuthSettings } from './AuthSettings';
 import { DragonCopilotPreview } from './DragonCopilotPreview';
+import { usePartnerInitiatedTest } from '../hooks/usePartnerInitiatedTest';
+import type { ExecuteResult, PartnerInitiatedResult, ValidationResult } from '../types/testing';
 import './ValidationResults.css';
 
 interface ToolInput {
@@ -57,37 +66,12 @@ interface ManifestInfo {
   capabilities: string[];
 }
 
-interface ExecuteResult {
-  status: number;
-  statusText: string;
-  headers?: Record<string, string>;
-  processResponse?: { success?: boolean; message?: string; payload?: Record<string, unknown> } | null;
-  rawBody?: unknown;
-  sentRequest?: unknown;
-}
-
 interface ExecuteErrorDetails {
   message: string;
   endpoint?: string;
   cause?: string;
   troubleshooting?: string[];
   sentRequest?: unknown;
-}
-
-interface ValidationCheck {
-  check: string;
-  passed: boolean;
-  path?: string;
-  error?: string;
-}
-
-interface ValidationResult {
-  valid: boolean;
-  toolName: string;
-  outputContentType: string;
-  checks: ValidationCheck[];
-  summary: { passed: number; failed: number };
-  timestamp: string;
 }
 
 interface InputValidationCheck {
@@ -111,6 +95,9 @@ interface TestingPanelProps {
 }
 
 export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelProps) {
+  const capabilityId = useId();
+  const toolId = useId();
+  const listenerDescriptionId = useId();
   const [activeTab, setActiveTab] = useState<string>('setup');
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [selectedCapability, setSelectedCapability] = useState<string>('');
@@ -125,7 +112,40 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   const [expandedChecks, setExpandedChecks] = useState<Set<number>>(new Set());
   const [copyToast, setCopyToast] = useState(false);
   const [inputValidationErrors, setInputValidationErrors] = useState<InputValidationError[] | null>(null);
+  const [receivedUrl, setReceivedUrl] = useState<string | null>(null);
   const formRef = useRef<DynamicFormHandle>(null);
+  const runTestButtonRef = useRef<HTMLButtonElement>(null);
+  const resultsTabRef = useRef<HTMLButtonElement>(null);
+  const wasListening = useRef(false);
+
+  const handlePartnerResult = useCallback((data: PartnerInitiatedResult, elapsedMs: number, url: string) => {
+    setResult(data);
+    setValidationResult(data.validation);
+    setExecutionTimeMs(elapsedMs);
+    setReceivedUrl(url);
+    setExpandedChecks(new Set(data.validation.checks
+      .map((check, index) => !check.passed && check.error ? index : -1)
+      .filter((index) => index >= 0)));
+    setActiveTab('results');
+  }, []);
+
+  const partnerTest = usePartnerInitiatedTest({
+    manifestInfo, manifestRevision, capability: selectedCapability, toolName: selectedTool,
+    onComplete: handlePartnerResult,
+  });
+  const { start: startPartnerTest, cancel: cancelPartnerTest } = partnerTest;
+
+  useEffect(() => {
+    if (wasListening.current && !partnerTest.isActive) {
+      const focusTarget = activeTab === 'results' ? resultsTabRef.current : runTestButtonRef.current;
+      focusTarget?.focus();
+    }
+    wasListening.current = partnerTest.isActive;
+  }, [partnerTest.isActive, activeTab]);
+
+  useEffect(() => {
+    setReceivedUrl(null);
+  }, [manifestInfo, manifestRevision, selectedCapability, selectedTool]);
 
   // Load capabilities when manifest is loaded
   useEffect(() => {
@@ -191,9 +211,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   // Load tools when the selected capability changes. A manifest change clears
   // selectedCapability first, so this refetches even when the name is reused.
   useEffect(() => {
+    setTools([]);
+    setSelectedTool('');
     if (!selectedCapability) {
-      setTools([]);
-      setSelectedTool('');
       return;
     }
 
@@ -235,6 +255,8 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   }, []);
 
   const handleResetInputs = useCallback(() => {
+    void cancelPartnerTest();
+    setReceivedUrl(null);
     if (currentTool) {
       const defaults: Record<string, string> = {};
       for (const path of getFieldPaths(currentTool.inputs)) {
@@ -247,10 +269,22 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     setExecuteError(null);
     setExpandedChecks(new Set());
     setInputValidationErrors(null);
-  }, [currentTool]);
+  }, [currentTool, cancelPartnerTest]);
 
   const handleRunTest = useCallback(async () => {
     if (!selectedCapability || !selectedTool) return;
+
+    if (currentTool?.toolType === 'partnerInitiated') {
+      setResult(null);
+      setValidationResult(null);
+      setExecuteError(null);
+      setExpandedChecks(new Set());
+      setInputValidationErrors(null);
+      setReceivedUrl(null);
+      setActiveTab('setup');
+      await startPartnerTest();
+      return;
+    }
 
     // Validate form before executing
     if (formRef.current && !formRef.current.validate()) {
@@ -344,7 +378,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     } finally {
       setIsExecuting(false);
     }
-  }, [selectedCapability, selectedTool, inputValues]);
+  }, [selectedCapability, selectedTool, inputValues, currentTool, startPartnerTest]);
 
   const toggleCheck = useCallback((index: number) => {
     setExpandedChecks((prev) => {
@@ -397,6 +431,8 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   const selectedCapabilityLabel = selectedCapabilityEntry
     ? selectedCapabilityEntry.displayName ?? selectedCapabilityEntry.name
     : selectedCapability;
+  const listenerStatus = partnerTest.phase === 'starting' ? 'Starting listener...' :
+    partnerTest.phase === 'stopping' ? 'Stopping listener...' : 'Waiting for request';
 
   return (
     <div className="testing-panel">
@@ -407,10 +443,52 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
         onTabSelect={(_, data) => setActiveTab(data.value as string)}
       >
         <Tab value="setup">Setup</Tab>
-        <Tab value="results">Results</Tab>
+        <Tab value="results" ref={resultsTabRef}>Results</Tab>
         <Tab value="outputs">Outputs</Tab>
         <Tab value="preview">Dragon Copilot Preview</Tab>
       </TabList>
+
+      <Dialog
+        open={partnerTest.isActive}
+        onOpenChange={(_, data) => {
+          if (!data.open && partnerTest.phase !== 'stopping') void cancelPartnerTest();
+        }}
+      >
+        <DialogSurface aria-describedby={partnerTest.callbackUrl ? listenerDescriptionId : undefined}>
+          <DialogBody>
+            <DialogTitle action={
+              <Button
+                appearance="subtle"
+                aria-label="Stop listening and close"
+                icon={<DismissRegular />}
+                onClick={() => { void cancelPartnerTest(); }}
+                disabled={partnerTest.phase === 'stopping'}
+              />
+            }>
+              <span aria-live="polite">{listenerStatus}</span>
+            </DialogTitle>
+            <DialogContent className="partner-listener-content">
+              <ProgressBar aria-label={listenerStatus} />
+              {partnerTest.callbackUrl && (
+                <div id={listenerDescriptionId}>
+                  <p>Waiting for a POST request on <code>{partnerTest.callbackUrl}</code></p>
+                  <p>Send the raw output payload as JSON, without an ingest envelope.</p>
+                </div>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button
+                appearance="primary"
+                onClick={() => { void cancelPartnerTest(); }}
+                disabled={partnerTest.phase === 'stopping'}
+              >
+                Stop listening
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
+      {partnerTest.error && <div className="execute-error" role="alert">{partnerTest.error}</div>}
 
       <div className="tab-content">
         {activeTab === 'setup' && (
@@ -420,8 +498,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
             </div>
 
             <div className="form-field">
-              <label className="field-label">Capability</label>
+              <label className="field-label" htmlFor={capabilityId}>Capability</label>
               <Dropdown
+                id={capabilityId}
                 value={selectedCapabilityEntry ? selectedCapabilityLabel : ''}
                 selectedOptions={[selectedCapability]}
                 onOptionSelect={(_, data) => {
@@ -439,8 +518,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
             </div>
 
             <div className="form-field">
-              <label className="field-label">Tool</label>
+              <label className="field-label" htmlFor={toolId}>Tool</label>
               <Dropdown
+                id={toolId}
                 value={tools.find(t => t.name === selectedTool)?.name || ''}
                 selectedOptions={[selectedTool]}
                 onOptionSelect={(_, data) => {
@@ -460,18 +540,20 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
               )}
               {isPartnerInitiated && (
                 <p className="field-description" role="note">
-                  This tool is partnerInitiated: Dragon Copilot never calls it, so it cannot be run from the
-                  sandbox. Partners submit pre-draft reports through the partner-initiated API instead.
+                  This tool is partnerInitiated: Run Test starts a local listener for draft report
+                  submissions instead of calling the partner.
                 </p>
               )}
             </div>
 
-            <div className="form-field">
-              <label className="field-label">Authentication</label>
-              <AuthSettings />
-            </div>
+            {currentTool?.toolType !== 'partnerInitiated' && (
+              <div className="form-field">
+                <label className="field-label">Authentication</label>
+                <AuthSettings />
+              </div>
+            )}
 
-            {currentTool && (
+            {currentTool && currentTool.toolType !== 'partnerInitiated' && (
               <DynamicForm
                 ref={formRef}
                 inputs={currentTool.inputs}
@@ -482,10 +564,11 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
             <div className="action-bar">
               <Button
+                ref={runTestButtonRef}
                 appearance="primary"
                 icon={<CodeRegular />}
                 onClick={handleRunTest}
-                disabled={isExecuting || isPartnerInitiated}
+                disabled={isExecuting || partnerTest.isActive || !currentTool}
               >
                 {isExecuting ? 'Running...' : 'Run Test'}
               </Button>
@@ -560,7 +643,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                       <div className="tool-context-value">{selectedTool}</div>
                     </div>
                     <div>
-                      <div className="tool-context-label">Execution Time</div>
+                      <div className="tool-context-label">{receivedUrl ? 'Wait and Validation Time' : 'Execution Time'}</div>
                       <div className="tool-context-value">{executionTimeMs} ms</div>
                     </div>
                     {result && (
@@ -588,7 +671,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                     {/* Summary */}
                     <p className="validation-summary">
                       {validationResult.valid
-                        ? `All ${validationResult.summary.passed} checks passed — response matches the expected schema.`
+                        ? `All ${validationResult.summary.passed} checks passed — ${receivedUrl ? 'request body' : 'response'} matches the expected schema.`
                         : `${validationResult.summary.failed} of ${validationResult.summary.passed + validationResult.summary.failed} checks failed — ${validationResult.checks.filter(c => !c.passed).map(c => c.error || c.check).join('; ')}`}
                     </p>
 
@@ -675,7 +758,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                     appearance="primary"
                     icon={<CodeRegular />}
                     onClick={handleRunTest}
-                    disabled={isExecuting || isPartnerInitiated}
+                    disabled={isExecuting || partnerTest.isActive || !currentTool}
                   >
                     Re-run Execution
                   </Button>
@@ -708,7 +791,15 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
         {activeTab === 'outputs' && (
           <div className="outputs-tab">
-            {result && currentTool ? (
+            {result && receivedUrl ? (
+              <div className="outputs-display">
+                <h3 className="outputs-section-title">Received Request Payload</h3>
+                <div className="request-method-badge">POST {receivedUrl}</div>
+                <pre className="dark-code-block">
+                  {result.rawBody === undefined ? 'No request body' : JSON.stringify(result.rawBody, null, 2)}
+                </pre>
+              </div>
+            ) : result && currentTool ? (
               <div className="outputs-display">
                 <h3 className="outputs-section-title">Request Payload</h3>
                 <div className="request-method-badge">POST {currentTool.endpoint ?? '(no endpoint)'}</div>
@@ -752,8 +843,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
         {activeTab === 'preview' && (
           <div className="preview-tab">
             <DragonCopilotPreview
+              toolType={currentTool?.toolType}
               result={result}
-              executionError={executeError}
+              executionError={isPartnerInitiated && partnerTest.error ? { message: partnerTest.error } : executeError}
               toolName={selectedTool || undefined}
               extensionName={manifestInfo.name}
             />

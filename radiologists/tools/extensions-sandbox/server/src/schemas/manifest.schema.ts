@@ -38,19 +38,28 @@ export interface ManifestOutput {
   schemaVersion: string;
 }
 
-export interface ManifestTool {
+interface ManifestToolBase {
   name: string;
-  toolType: 'contractBased' | 'partnerInitiated';
-  capability: 'qualityCheck' | 'preDraftReportGeneration';
   description: string;
-  /** Required for contractBased tools; not used by partnerInitiated tools. */
-  endpoint?: string;
-  /** Required for contractBased tools; not used by partnerInitiated tools. */
-  inputs?: ManifestInput[];
   outputs: ManifestOutput[];
   relevanceFilteringCriteria?: RelevanceFilteringCriteria;
   configurationTemplate?: Record<string, unknown>;
 }
+
+export type ManifestTool = ManifestToolBase & (
+  | {
+      toolType: 'contractBased';
+      capability: 'qualityCheck';
+      endpoint: string;
+      inputs: ManifestInput[];
+    }
+  | {
+      toolType: 'partnerInitiated';
+      capability: 'preDraftReportGeneration';
+      endpoint?: string;
+      inputs?: ManifestInput[];
+    }
+);
 
 export interface ManifestAuth {
   tenantId: string;
@@ -64,4 +73,3 @@ export interface ExtensionManifest {
   auth: ManifestAuth;
   tools: ManifestTool[];
 }
-

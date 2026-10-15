@@ -214,7 +214,7 @@ function getEnumHint(path: string, allowed: string[], schemaPath: string): { det
     if (schemaPath.includes('Output') || path.includes('/outputs/')) {
       return {
         detail: `Invalid output content-type at '${path}'.`,
-        hint: `Use one of the supported output content types:\n  • "application/vnd.ms-dragon.rad.quality-check-result+json" (report optimization findings)\n  • "application/vnd.ms-dragon.rad.draft-report+json" (pre-draft report)`,
+        hint: `Use one of the supported output content types:\n  • "application/vnd.ms-dragon.rad.quality-check-result+json" (report optimization findings)\n  • "application/vnd.ms-dragon.rad.draft-report+json" (draft report)`,
       };
     }
   }
@@ -229,7 +229,7 @@ function getEnumHint(path: string, allowed: string[], schemaPath: string): { det
   if (path.endsWith('/capability')) {
     return {
       detail: `Invalid capability at '${path}'.`,
-      hint: `Use "qualityCheck" (Report Optimization, contractBased tools) or "preDraftReportGeneration" (Pre-Draft Report Generation, partnerInitiated tools).`,
+      hint: `Use "qualityCheck" (Report Optimization, contractBased tools) or "preDraftReportGeneration" (Draft Report Generation, partnerInitiated tools).`,
     };
   }
 

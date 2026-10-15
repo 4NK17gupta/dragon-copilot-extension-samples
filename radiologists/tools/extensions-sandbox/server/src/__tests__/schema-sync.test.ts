@@ -158,6 +158,11 @@ describe('CLI manifest core sync', () => {
 describe('Partner-initiated schema sync', () => {
   const syncedSchemaPaths = [DRAFT_REPORT_SCHEMA_PATH, DRAFT_REPORT_INGEST_REQUEST_SCHEMA_PATH];
 
+  it('packages draft report schema version 1.0', () => {
+    const schema = JSON.parse(readFileSync(DRAFT_REPORT_SCHEMA_PATH, 'utf-8'));
+    expect(schema['x-ms-schema-version']).toBe('1.0');
+  });
+
   it.each(syncedSchemaPaths)('has %s synced into the sandbox', (sandboxPath) => {
     expect(existsSync(sandboxPath)).toBe(true);
   });
