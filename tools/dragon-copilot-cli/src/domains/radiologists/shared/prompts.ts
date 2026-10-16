@@ -12,6 +12,7 @@ import {
   CAPABILITY_CHOICES,
   DEFAULT_OUTPUT_CONTENT_TYPE,
   DEFAULT_TOOL_TYPE,
+  DRAFT_REPORT_CONTENT_TYPE,
   INPUT_TYPE_CHOICES,
   MANIFEST_DEFAULTS,
   MODALITY_CHOICES,
@@ -34,6 +35,12 @@ export {
   getInputDescription,
   getInputName
 };
+
+/** Output name/description offered for partnerInitiated (draft report) tools; matches the `pre-draft-report` template. */
+const DRAFT_REPORT_OUTPUT_DEFAULTS = {
+  name: 'preDraftReportResult',
+  description: 'Draft radiology report'
+} as const;
 
 export interface ExtensionDetails {
   name: string;
@@ -148,10 +155,10 @@ export async function promptExtensionDetails(defaults?: Partial<ExtensionDetails
  */
 export async function promptAuthDetails(defaults?: { tenantId?: string }): Promise<{ tenantId: string }> {
   console.log('Authentication configuration is required for Dragon Copilot extensions.');
-  console.log('This should be the Azure Entra ID tenant where your extension will be deployed.');
+  console.log('This is the Microsoft Entra tenant ID of your organization, the tenant that owns this extension, not a customer tenant.');
 
   const tenantId = await input({
-    message: 'Azure Entra ID Tenant ID:',
+    message: 'Microsoft Entra tenant ID:',
     default: defaults?.tenantId || '',
     validate: validateTenantId
   });
@@ -246,14 +253,16 @@ export async function promptOutputDetails(
   defaults?: { name?: string; description?: string; schemaVersion?: string },
   contentType: string = DEFAULT_OUTPUT_CONTENT_TYPE
 ): Promise<DcrOutput> {
+  const isDraftReport = contentType === DRAFT_REPORT_CONTENT_TYPE;
+
   const name = await input({
     message: 'Output name:',
-    default: defaults?.name || MANIFEST_DEFAULTS.outputName
+    default: defaults?.name || (isDraftReport ? DRAFT_REPORT_OUTPUT_DEFAULTS.name : MANIFEST_DEFAULTS.outputName)
   });
 
   const description = await input({
     message: 'Output description:',
-    default: defaults?.description || MANIFEST_DEFAULTS.outputDescription
+    default: defaults?.description || (isDraftReport ? DRAFT_REPORT_OUTPUT_DEFAULTS.description : MANIFEST_DEFAULTS.outputDescription)
   });
 
   const schemaVersion = await input({

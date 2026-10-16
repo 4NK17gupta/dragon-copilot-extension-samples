@@ -1,14 +1,14 @@
 # `partnerInitiated` tools
 
-Artifacts for tools whose `toolType` is **`partnerInitiated`**: the Partner calls Dragon Copilot (radiologists) to submit results, rather than Dragon Copilot calling the Partner.
+For a **`partnerInitiated`** tool, the Partner calls Dragon Copilot Radiologists to submit results rather than being called by Dragon Copilot.
 
-By contrast, a `contractBased` tool hosts an `endpoint` that Dragon Copilot calls with the declared `inputs`; see the [radiologists README](../README.md) and the [extensibility API](../radiologists-extensibility-api.yaml).
+See [Two tool types](../README.md#two-tool-types) in the radiologists README for how this compares with `contractBased`.
 
 ## What a Partner builds
 
-A client that calls Dragon Copilot. After your model processes a study, your application or service POSTs the draft report to Dragon Copilot's [submission endpoint](#submitting-a-result), on its own schedule. Dragon Copilot stores the draft and shows it to the radiologist when they open the order.
+A client application or service that submits draft reports to Dragon Copilot through the [submission endpoint](#submitting-a-result). Dragon Copilot stores each draft and displays it when the radiologist opens the order.
 
-Because Dragon Copilot never calls you, there's no endpoint to host and no extensibility API to implement, unlike a `contractBased` tool.
+Because Dragon Copilot does not call the Partner, there is no endpoint to expose or extensibility API to implement.
 
 ## Integration steps
 
@@ -43,7 +43,9 @@ tools:
 
 - `auth.tenantId` should be your Microsoft Entra tenant ID. Results must be submitted with an access token issued by your tenant. See [Authentication](#authentication).
 - A `partnerInitiated` tool omits `endpoint` and `inputs`, since neither is used, and declares only what it produces. The manifest schema requires `endpoint` and `inputs` only when `toolType` is `contractBased`.
-- The [reference manifest](../manifest/extension.yaml) declares this tool alongside a `contractBased` one.
+
+The [reference manifest](../manifest/extension.yaml) declares this tool alongside a `contractBased` one.
+
 Validate the manifest with the [Dragon Copilot CLI](../../tools/dragon-copilot-cli/README.md): `dragon-copilot radiologists validate ./extension.yaml`.
 
 ## Submitting a result
