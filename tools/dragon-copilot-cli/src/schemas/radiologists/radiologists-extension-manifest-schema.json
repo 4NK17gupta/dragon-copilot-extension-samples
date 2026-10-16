@@ -83,7 +83,7 @@
             "contractBased",
             "partnerInitiated"
           ],
-          "description": "The interaction pattern for this tool. contractBased: Dragon Copilot (radiologists) calls the partner's endpoint with typed payloads and receives the outputs in the response. partnerInitiated: the partner calls Dragon Copilot (radiologists) to submit results, so no endpoint is called and no inputs are sent. partnerInitiated: the partner submits results to Dragon Copilot (radiologists), without an endpoint or inputs."
+          "description": "The interaction pattern for this tool. contractBased: Dragon Copilot (radiologists) calls the partner's endpoint with typed payloads and receives the outputs in the response. partnerInitiated: the partner calls Dragon Copilot (radiologists) to submit results, so no endpoint is called and no inputs are sent."
         },
         "capability": {
           "type": "string",
