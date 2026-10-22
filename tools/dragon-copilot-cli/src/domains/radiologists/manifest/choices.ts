@@ -49,10 +49,10 @@ export const CAPABILITY_CHOICES: ManifestChoice<Capability>[] = [
  * The capability each tool type delivers, mirroring the schema's `toolType` ↔
  * `capability` pairing rule (each capability belongs to exactly one tool type).
  */
-export const CAPABILITY_BY_TOOL_TYPE: Record<ToolType, Capability> = {
+export const CAPABILITY_BY_TOOL_TYPE: Readonly<Record<ToolType, Capability>> = Object.freeze({
   contractBased: DEFAULT_CAPABILITY,
   partnerInitiated: PRE_DRAFT_REPORT_GENERATION_CAPABILITY,
-};
+});
 
 export const BODY_PART_CHOICES: ManifestChoice[] = [
   { name: 'Head', value: 'HEAD' },
@@ -104,6 +104,23 @@ export const MANIFEST_DEFAULTS = {
   outputDescription: 'Report optimization result',
   schemaVersion: DEFAULT_PAYLOAD_SCHEMA_VERSION,
 } as const;
+
+/** Output name/description offered for `partnerInitiated` (draft report) tools; used by the `pre-draft-report` template. */
+export const DRAFT_REPORT_OUTPUT_DEFAULTS = {
+  name: 'preDraftReportResult',
+  description: 'Draft radiology report',
+} as const;
+
+/** Default output name/description per tool type, offered by the CLI and sandbox wizards. */
+export const OUTPUT_DEFAULTS_BY_TOOL_TYPE: Readonly<
+  Record<ToolType, Readonly<{ name: string; description: string }>>
+> = Object.freeze({
+  contractBased: Object.freeze({ name: MANIFEST_DEFAULTS.outputName, description: MANIFEST_DEFAULTS.outputDescription }),
+  partnerInitiated: Object.freeze({
+    name: DRAFT_REPORT_OUTPUT_DEFAULTS.name,
+    description: DRAFT_REPORT_OUTPUT_DEFAULTS.description,
+  }),
+});
 
 /**
  * Describes an input content type in generated manifests.

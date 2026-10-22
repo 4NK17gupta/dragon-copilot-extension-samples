@@ -16,9 +16,11 @@ import type {
   RecommendationsBlock,
   ResultSource,
 } from '../preview';
+import { PARTNER_INITIATED } from '../types/manifest';
+import type { ToolType } from '../types/manifest';
 
 export interface DragonCopilotPreviewProps {
-  toolType?: 'contractBased' | 'partnerInitiated';
+  toolType?: ToolType;
   /**
    * The latest execution result, in the shape the active source's provider
    * expects. Partner-initiated runs include the raw body and its validation.
@@ -39,7 +41,7 @@ export interface DragonCopilotPreviewProps {
 }
 
 export function DragonCopilotPreview({ toolType, ...props }: DragonCopilotPreviewProps) {
-  return toolType === 'partnerInitiated'
+  return toolType === PARTNER_INITIATED
     ? <PartnerInitiatedPreview {...props} />
     : <ContractBasedPreview {...props} />;
 }
