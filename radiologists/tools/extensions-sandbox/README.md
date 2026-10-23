@@ -35,6 +35,8 @@ Open `http://localhost:3000` in your browser.
 ### Testing partner-initiated tools
 
 Upload a manifest with a `partnerInitiated` tool, select it, and click **Run Test**.
+When a `partnerInitiated` tool is selected, the **Setup** tab notes, right after the tool's
+partnerInitiated description, that auth is not supported for now for partner initiated flows.
 Instead of calling an extension, the sandbox waits for one POST at the displayed URL:
 `/api/partnerInitiated/{auth.tenantId}/{toolName}`. Send **only the raw output object**
 with `Content-Type: application/json` (a vendor `application/*+json` type also works).
@@ -90,8 +92,22 @@ tool names, template IDs, and example filenames are unchanged.
 
 If you don't have a manifest yet, click **Generate Manifest** in the Manifest Editor toolbar. The
 dialog asks the core questions from `dragon-copilot radiologists init`, either starting from a built-in
-template (`quality-check`) or from your own values — extension name, tenant, tool endpoint, input data
-types, output, and optional relevance filtering by body part and modality.
+template (`quality-check` for Report Optimization, `pre-draft-report` for AI Draft) or from your own
+values — extension name, tenant, and one or more tools, each with a name, description, tool type,
+output, and optional relevance filtering by body part and modality.
+
+Each tool's **Tool type** decides what else is asked:
+
+- **Contract Based** (`qualityCheck`): Dragon Copilot calls your endpoint, so the tool needs an API
+  endpoint and at least one input data type.
+- **Partner Initiated** (`preDraftReportGeneration`, AI Draft): you submit draft reports to Dragon
+  Copilot, so there is no endpoint or input to fill in. The output name and description switch to the
+  draft report defaults unless you have already changed them. Relevance filtering is declarative and
+  not currently enforced for these tools.
+
+The capability is shown read-only; it follows from the tool type. Use **Add another tool** to put
+several tools, of either type, in one manifest. Tool names must be unique, and **Generate manifest**
+stays disabled until they are.
 
 **Generate manifest** posts the answers to `POST /api/cli/generate`, where the CLI's own manifest code
 assembles the YAML; the result is loaded into the editor and validated immediately, so you can go
@@ -295,12 +311,19 @@ Input and response validation return `200` when valid and `422` when the payload
 | GET    | /api/cli/options  | Templates, selectable values, and field defaults the wizard renders   |
 | POST   | /api/cli/generate | Generate a manifest from a template or wizard answers, returned as YAML |
 
-`POST /api/cli/generate` takes `mode: "template"` (with a `template` id) or `mode: "custom"` (with
-`extension` and `tool` objects), plus the `tenantId` in both cases. An omitted or blank `mode`
-defaults to `template`; any other value, including a non-string, is rejected. It returns `200` with
-the generated `yaml`, `400` when the request itself is unusable (unsupported `mode`, no tenant,
-unknown template, no tool), and `422` when the generated manifest fails schema validation — in
-which case the `yaml` is still returned alongside the errors so the editor can show them in context.
+`POST /api/cli/generate` takes `mode: "template"` (with a `template` id) or `mode: "custom"` (with an
+`extension` object and a `tools` array), plus the `tenantId` in both cases. Each tool has a `toolType`
+(`contractBased` by default); `endpoint` and `inputTypes` are used only for `contractBased` tools, and
+the capability defaults to the one paired with the tool type. A single `tool` object is still accepted
+in place of `tools`, but not both together. An omitted or blank `mode` defaults to `template`; any
+other value, including a non-string, is rejected. It returns `200` with the generated `yaml`, `400`
+when the request itself is unusable (unsupported `mode`, no tenant, unknown template, no tool, both
+`tool` and `tools`, duplicate tool names), and `422` when the generated manifest fails schema
+validation — in which case the `yaml` is still returned alongside the errors so the editor can show
+them in context.
+
+`GET /api/cli/options` also returns `capabilityByToolType` and `outputDefaultsByToolType`, and each
+template summary lists the `toolTypes` it uses.
 
 Generation runs the manifest core owned by `tools/dragon-copilot-cli` in-process (synced into
 `src/cli/radiologists/`); the CLI binary is never spawned, and it does not need to be installed.

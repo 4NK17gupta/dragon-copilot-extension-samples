@@ -13,6 +13,7 @@ import {
   DEFAULT_OUTPUT_CONTENT_TYPE,
   DEFAULT_TOOL_TYPE,
   DRAFT_REPORT_CONTENT_TYPE,
+  DRAFT_REPORT_OUTPUT_DEFAULTS,
   INPUT_TYPE_CHOICES,
   MANIFEST_DEFAULTS,
   MODALITY_CHOICES,
@@ -35,12 +36,6 @@ export {
   getInputDescription,
   getInputName
 };
-
-/** Output name/description offered for partnerInitiated (draft report) tools; matches the `pre-draft-report` template. */
-const DRAFT_REPORT_OUTPUT_DEFAULTS = {
-  name: 'preDraftReportResult',
-  description: 'Draft radiology report'
-} as const;
 
 export interface ExtensionDetails {
   name: string;

@@ -8,8 +8,9 @@ const cli = vi.hoisted(() => ({
   results: [] as Array<boolean | void>,
 }));
 
-// The wizard's form is covered by the server's CLI tests; here it only has to
-// hand the editor a generated manifest and report whether the editor took it.
+// The wizard's form is covered by CliWizardDialog.test.tsx and the server's CLI
+// tests; here it only has to hand the editor a generated manifest and report
+// whether the editor took it.
 vi.mock('../CliWizardDialog', () => ({
   CliWizardDialog: ({ onGenerated }: { onGenerated: (yaml: string) => boolean | void }) => (
     <button type="button" onClick={() => cli.results.push(onGenerated(cli.yaml))}>

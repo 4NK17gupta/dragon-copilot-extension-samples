@@ -80,8 +80,14 @@ describe('TestingPanel draft tool selection', () => {
     'utf-8',
   ));
   const preDraftTools = [
-    { name: fixture.tools[0].name, description: fixture.tools[0].description, inputs: [], outputs: [] },
-    { name: 'secondPreDraftTool', description: 'Another draft generator', inputs: [], outputs: [] },
+    {
+      name: fixture.tools[0].name,
+      description: fixture.tools[0].description,
+      toolType: fixture.tools[0].toolType,
+      inputs: [],
+      outputs: [],
+    },
+    { name: 'secondPreDraftTool', description: 'Another draft generator', toolType: 'partnerInitiated', inputs: [], outputs: [] },
   ];
   const capabilities = [
     { name: 'qualityCheck', displayName: 'Report Optimization', toolCount: 1 },
@@ -124,6 +130,29 @@ describe('TestingPanel draft tool selection', () => {
     await waitFor(() =>
       expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue('qualityCheckTool'),
     );
+  });
+
+  it('shows the auth note right after the partnerInitiated tool description', async () => {
+    const authNote = 'Auth not supported for now for partner initiated flows';
+    await renderPanel(info);
+    expect(screen.getByRole('combobox', { name: 'Capability' })).toHaveDisplayValue('Report Optimization');
+    expect(screen.queryByText(authNote)).toBeNull();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Capability' }), {
+      target: { value: 'preDraftReportGeneration' },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue(preDraftTools[0].name),
+    );
+    const description = screen.getByText(/This tool is partnerInitiated/);
+    const note = screen.getByText(authNote);
+    expect(description.nextElementSibling).toBe(note);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Capability' }), { target: { value: 'qualityCheck' } });
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue('qualityCheckTool'),
+    );
+    expect(screen.queryByText(authNote)).toBeNull();
   });
 
   it('selects the fixture tool for a manifest with only draft report generation', async () => {

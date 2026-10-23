@@ -4,7 +4,9 @@ import {
   DEFAULT_OUTPUT_CONTENT_TYPE,
   DEFAULT_PAYLOAD_SCHEMA_VERSION,
   DRAFT_REPORT_CONTENT_TYPE,
+  DRAFT_REPORT_OUTPUT_DEFAULTS,
   MANIFEST_DEFAULTS,
+  OUTPUT_DEFAULTS_BY_TOOL_TYPE,
   PATIENT_INFORMATION_CONTENT_TYPE,
   REPORT_CONTENT_TYPE,
   buildManifest,
@@ -235,6 +237,7 @@ describe('radiologists manifest builder', () => {
         description: 'Extension to provide radiology report optimization',
         version: '0.0.1',
         toolCount: 1,
+        toolTypes: ['contractBased'],
       },
       {
         id: 'pre-draft-report',
@@ -242,6 +245,7 @@ describe('radiologists manifest builder', () => {
         description: 'Extension to provide draft radiology report generation',
         version: '0.0.1',
         toolCount: 1,
+        toolTypes: ['partnerInitiated'],
       },
     ]);
   });
@@ -281,5 +285,15 @@ describe('radiologists manifest builder', () => {
     expect(MANIFEST_DEFAULTS.extensionName).toBe('myRadiologistsExtension');
     expect(MANIFEST_DEFAULTS.radiologistsExtensibilityApiVersion).toBe('1.0.0');
     expect(MANIFEST_DEFAULTS.schemaVersion).toBe(DEFAULT_PAYLOAD_SCHEMA_VERSION);
+  });
+
+  it('offers output defaults per tool type that match the built-in templates', () => {
+    expect(OUTPUT_DEFAULTS_BY_TOOL_TYPE).toEqual({
+      contractBased: { name: MANIFEST_DEFAULTS.outputName, description: MANIFEST_DEFAULTS.outputDescription },
+      partnerInitiated: DRAFT_REPORT_OUTPUT_DEFAULTS,
+    });
+
+    const draftOutput = getTemplate('pre-draft-report').tools[0]!.outputs[0]!;
+    expect({ name: draftOutput.name, description: draftOutput.description }).toEqual(DRAFT_REPORT_OUTPUT_DEFAULTS);
   });
 });

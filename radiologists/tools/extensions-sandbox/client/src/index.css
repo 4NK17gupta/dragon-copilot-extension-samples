@@ -189,6 +189,23 @@ body {
   flex-direction: column;
 }
 
+.cli-wizard-tool {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cli-wizard-tool-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cli-wizard-subsection {
+  font-size: 12px;
+  font-weight: 600;
+}
+
 /* Manifest label */
 .manifest-label {
   font-size: 12px;

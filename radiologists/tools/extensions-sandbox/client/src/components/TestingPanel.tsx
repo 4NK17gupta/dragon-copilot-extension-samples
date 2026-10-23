@@ -22,7 +22,11 @@ import { AuthSettings } from './AuthSettings';
 import { DragonCopilotPreview } from './DragonCopilotPreview';
 import { usePartnerInitiatedTest } from '../hooks/usePartnerInitiatedTest';
 import type { ExecuteResult, PartnerInitiatedResult, ValidationResult } from '../types/testing';
+import { PARTNER_INITIATED } from '../types/manifest';
+import type { ToolType } from '../types/manifest';
 import './ValidationResults.css';
+
+const PARTNER_INITIATED_AUTH_NOTE = 'Auth not supported for now for partner initiated flows';
 
 interface ToolInput {
   name: string;
@@ -43,7 +47,7 @@ interface ToolOutput {
 interface Tool {
   name: string;
   description: string;
-  toolType?: 'contractBased' | 'partnerInitiated';
+  toolType?: ToolType;
   /** Absent for partnerInitiated tools, which Dragon Copilot never calls. */
   endpoint?: string;
   inputs: ToolInput[];
@@ -248,7 +252,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   }, [selectedTool, tools]);
 
   const currentTool = tools.find((t) => t.name === selectedTool);
-  const isPartnerInitiated = currentTool?.toolType === 'partnerInitiated';
+  const isPartnerInitiated = currentTool?.toolType === PARTNER_INITIATED;
 
   const handleInputChange = useCallback((name: string, value: string) => {
     setInputValues((prev) => ({ ...prev, [name]: value }));
@@ -274,7 +278,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   const handleRunTest = useCallback(async () => {
     if (!selectedCapability || !selectedTool) return;
 
-    if (currentTool?.toolType === 'partnerInitiated') {
+    if (currentTool?.toolType === PARTNER_INITIATED) {
       setResult(null);
       setValidationResult(null);
       setExecuteError(null);
@@ -539,21 +543,24 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                 <p className="field-description">{currentTool.description}</p>
               )}
               {isPartnerInitiated && (
-                <p className="field-description" role="note">
-                  This tool is partnerInitiated: Run Test starts a local listener for draft report
-                  submissions instead of calling the partner.
-                </p>
+                <>
+                  <p className="field-description" role="note">
+                    This tool is partnerInitiated: Run Test starts a local listener for draft report
+                    submissions instead of calling the partner.
+                  </p>
+                  <p className="field-description" role="note">{PARTNER_INITIATED_AUTH_NOTE}</p>
+                </>
               )}
             </div>
 
-            {currentTool?.toolType !== 'partnerInitiated' && (
+            {!isPartnerInitiated && (
               <div className="form-field">
                 <label className="field-label">Authentication</label>
                 <AuthSettings />
               </div>
             )}
 
-            {currentTool && currentTool.toolType !== 'partnerInitiated' && (
+            {currentTool && !isPartnerInitiated && (
               <DynamicForm
                 ref={formRef}
                 inputs={currentTool.inputs}
