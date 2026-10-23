@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import Markdown from 'react-markdown';
 import {
   ChevronDownRegular,
   ChevronUpRegular,
@@ -7,6 +8,7 @@ import {
 } from '@fluentui/react-icons';
 import { buildPreview, listResultProviders } from '../preview';
 import { JsonBlockView } from './JsonBlockView';
+import { buildDraftReportPreview } from '../preview/draft-report-preview';
 import type {
   MessageBlock,
   PreviewBlock,
@@ -14,11 +16,15 @@ import type {
   RecommendationsBlock,
   ResultSource,
 } from '../preview';
+import { PARTNER_INITIATED } from '../types/manifest';
+import type { ToolType } from '../types/manifest';
 
 export interface DragonCopilotPreviewProps {
+  toolType?: ToolType;
   /**
    * The latest execution result, in the shape the active source's provider
-   * expects. For `extension-api` this is the sandbox `ExecuteResult`.
+   * expects. Partner-initiated runs include the raw body and its validation.
+   * For `extension-api` this is the sandbox `ExecuteResult`.
    */
   result: unknown;
   /** Which result source to preview. Defaults to the extension API. */
@@ -32,6 +38,95 @@ export interface DragonCopilotPreviewProps {
    * Shown instead of the not-run state so a failed run never reads as "no run".
    */
   executionError?: { message: string } | null;
+}
+
+export function DragonCopilotPreview({ toolType, ...props }: DragonCopilotPreviewProps) {
+  return toolType === PARTNER_INITIATED
+    ? <PartnerInitiatedPreview {...props} />
+    : <ContractBasedPreview {...props} />;
+}
+
+function PartnerInitiatedPreview({
+  result,
+  executionError,
+}: Omit<DragonCopilotPreviewProps, 'toolType'>) {
+  const titleId = useId();
+  const model = useMemo(() => buildDraftReportPreview(result), [result]);
+  const error = executionError?.message ?? (model?.kind === 'error' ? model.message : undefined);
+  const report = !error && model?.kind === 'report' ? model : null;
+  const hasContent = report?.sections.some((section) => section.content.trim());
+
+  return (
+    <div className="dc-preview">
+      {error ? (
+        <p className="dc-preview-message dc-preview-message-error" role="status">{error}</p>
+      ) : (
+        <>
+          {!report && (
+            <p className="dc-preview-message dc-preview-message-info" role="status">
+              No draft report received yet. Run Test from the Setup tab, then POST the raw draft report to the displayed URL.
+            </p>
+          )}
+          {report && !hasContent && (
+            <p className="dc-preview-message dc-preview-message-info" role="status">
+              The received draft report contains no section text.
+            </p>
+          )}
+          <section className="dc-preview-frame dc-ai-draft" aria-labelledby={titleId}>
+            <h3 id={titleId} className="dc-ai-draft-title">AI draft</h3>
+            <div className="dc-ai-draft-report">
+              {report?.sections.map((section, index) => (
+                <div
+                  key={`${section.sectionOrder}-${index}`}
+                  className={`dc-ai-draft-section${
+                    ['history', 'technique', 'comparison'].includes(section.name) ? ' dc-ai-draft-section-inline' : ''
+                  }`}
+                >
+                  {section.name !== 'title' && (
+                    <h4 className="dc-ai-draft-section-title">{section.name.replace(/_/g, ' ').toUpperCase()}:</h4>
+                  )}
+                  <div className="dc-ai-draft-content">
+                    {report.format === 'markdown' ? (
+                      <Markdown
+                        components={{
+                          // Drafts are read-only: never fetch partner-supplied images or navigate links.
+                          img: ({ alt }) => <span>{alt || '[Image omitted]'}</span>,
+                          a: ({ children }) => <span>{children}</span>,
+                        }}
+                      >{section.content}</Markdown>
+                    ) : (
+                      <div className="dc-ai-draft-plain-text">{section.content}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {report && hasContent && <ContentDisclaimers aiGenerated={report.sections.some((section) => section.aiGenerated)} />}
+          </section>
+        </>
+      )}
+      <p className="dc-preview-footnote">
+        Preview only — the live Dragon Copilot surface may apply additional styling. Only submitted report sections are shown; metadata remains in the Outputs tab.
+      </p>
+    </div>
+  );
+}
+
+function ContentDisclaimers({ aiGenerated = true }: { aiGenerated?: boolean }) {
+  return (
+    <div className="dc-disclaimers">
+      {aiGenerated && (
+        <span className="dc-disclaimer">
+          <ShieldFilled className="dc-disclaimer-icon dc-disclaimer-icon-ai" aria-hidden />
+          <span>AI-generated content may be incorrect</span>
+        </span>
+      )}
+      <span className="dc-disclaimer">
+        <ShieldFilled className="dc-disclaimer-icon dc-disclaimer-icon-third-party" aria-hidden />
+        <span>Third-party generated content</span>
+      </span>
+    </div>
+  );
 }
 
 type ContentBlock = Exclude<PreviewBlock, MessageBlock>;
@@ -131,16 +226,7 @@ function RecommendationsBlockView({
               </ul>
             </div>
           ))}
-          <div className="dc-disclaimers">
-            <span className="dc-disclaimer">
-              <ShieldFilled className="dc-disclaimer-icon dc-disclaimer-icon-ai" aria-hidden />
-              <span>AI-generated content may be incorrect</span>
-            </span>
-            <span className="dc-disclaimer">
-              <ShieldFilled className="dc-disclaimer-icon dc-disclaimer-icon-third-party" aria-hidden />
-              <span>Third-party generated content</span>
-            </span>
-          </div>
+          <ContentDisclaimers />
         </>
       )}
     </ReportOptimizationCard>
@@ -188,13 +274,13 @@ function isMessage(block: PreviewBlock): block is MessageBlock {
  * Dragon Copilot. Rendering goes through the result-source providers, so adding
  * pixel-based AI app or PowerScribe results is a provider change, not a UI change.
  */
-export function DragonCopilotPreview({
+function ContractBasedPreview({
   result,
   source = 'extension-api',
   toolName,
   extensionName,
   executionError,
-}: DragonCopilotPreviewProps) {
+}: Omit<DragonCopilotPreviewProps, 'toolType'>) {
   const [activeSource, setActiveSource] = useState<ResultSource>(source);
   // Deliberately not memoized: the registry is mutable, so a memo keyed on `[]`
   // would pin whatever was registered at first render. The list is three entries.

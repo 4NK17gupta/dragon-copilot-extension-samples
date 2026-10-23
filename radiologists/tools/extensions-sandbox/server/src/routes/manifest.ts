@@ -10,8 +10,10 @@ import { validateToolInputs, validateToolResponse } from '../services/validation
 import { describeManifest, summarizeManifest, validateManifestDocument } from '../services/manifest-schema.js';
 import { parseAndGroupInputs } from 'extensions-sandbox-shared';
 import { createLogger } from '../utils/logger.js';
+import { partnerInitiatedRunRouter } from './partner-initiated.js';
 
 export const manifestRouter = Router();
+manifestRouter.use('/partner-initiated', partnerInitiatedRunRouter);
 
 const log = createLogger('manifest');
 
@@ -328,6 +330,16 @@ manifestRouter.post('/execute', async (req, res) => {
   if (!tool) {
     log.warn(`Execute rejected: tool '${toolName}' not found in capability '${capability}'.`);
     res.status(404).json({ error: `Tool '${toolName}' not found in capability '${capability}'.` });
+    return;
+  }
+
+  if (tool.toolType === 'partnerInitiated') {
+    log.warn(`Execute rejected: tool '${toolName}' is partnerInitiated and cannot be executed.`);
+    res.status(400).json({
+      error:
+        `Tool '${toolName}' is partnerInitiated: Dragon Copilot never calls it, so it cannot use the execute endpoint. ` +
+        'Use Run Test to start a local listener for draft report submissions instead.',
+    });
     return;
   }
 

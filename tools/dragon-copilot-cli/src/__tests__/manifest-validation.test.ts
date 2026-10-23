@@ -352,6 +352,65 @@ describe('validateDcrExtensionManifest (radiologists)', () => {
     expect(result.errors).toHaveLength(0);
   });
 
+  function buildValidPartnerInitiatedManifest(): DcrExtensionManifest {
+    return {
+      name: 'testPreDraftExtension',
+      description: 'Partner-initiated extension for schema validation tests',
+      version: '1.0.0',
+      radiologistsExtensibilityApiVersion: '1.0.0',
+      auth: {
+        tenantId: TENANT_ID,
+      },
+      tools: [
+        {
+          name: 'preDraftReportGeneratorTool',
+          toolType: 'partnerInitiated',
+          capability: 'preDraftReportGeneration',
+          description: 'Generates a pre-draft radiology report',
+          outputs: [
+            {
+              name: 'preDraftReportResult',
+              description: 'Pre-draft radiology report',
+              'content-type': 'application/vnd.ms-dragon.rad.draft-report+json',
+              schemaVersion: '1.0',
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('returns valid for a partnerInitiated tool that omits endpoint and inputs', () => {
+    const manifest = buildValidPartnerInitiatedManifest();
+
+    const result = validateDcrExtensionManifest(manifest);
+
+    expect(result.isValid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('requires endpoint and inputs when toolType is contractBased', () => {
+    const manifest = buildValidPartnerInitiatedManifest();
+    (manifest.tools[0] as any).toolType = 'contractBased';
+    (manifest.tools[0] as any).capability = 'qualityCheck';
+
+    const result = validateDcrExtensionManifest(manifest);
+
+    expect(result.isValid).toBe(false);
+    const messages = result.errors.map(e => `${e.path}: ${e.message}`).join('\n');
+    expect(messages).toContain('endpoint');
+    expect(messages).toContain('inputs');
+  });
+
+  it('rejects an unknown toolType', () => {
+    const manifest = buildValidPartnerInitiatedManifest();
+    (manifest.tools[0] as any).toolType = 'somethingElse';
+
+    const result = validateDcrExtensionManifest(manifest);
+
+    expect(result.isValid).toBe(false);
+  });
+
   it('rejects an invalid capability value', () => {
     const manifest = buildValidRadiologistsManifest();
     (manifest.tools[0] as any).capability = 'invalidCapability';
@@ -436,7 +495,7 @@ describe('validateDcrExtensionManifest (radiologists)', () => {
 
   it('rejects input missing schemaVersion', () => {
     const manifest = buildValidRadiologistsManifest();
-    delete (manifest.tools[0].inputs[0] as any).schemaVersion;
+    delete (manifest.tools[0].inputs![0] as any).schemaVersion;
 
     const result = validateDcrExtensionManifest(manifest);
 
@@ -466,7 +525,7 @@ describe('validateDcrExtensionManifest (radiologists)', () => {
 
   it('rejects schemaVersion in wrong format (three segments)', () => {
     const manifest = buildValidRadiologistsManifest();
-    manifest.tools[0].inputs[0].schemaVersion = '1.0.0';
+    manifest.tools[0].inputs![0].schemaVersion = '1.0.0';
 
     const result = validateDcrExtensionManifest(manifest);
 
@@ -510,7 +569,7 @@ describe('validateDcrExtensionManifest (radiologists)', () => {
 
   it('rejects an invalid input content-type', () => {
     const manifest = buildValidRadiologistsManifest();
-    (manifest.tools[0].inputs[0] as any)['content-type'] =
+    (manifest.tools[0].inputs![0] as any)['content-type'] =
       'application/vnd.ms-dragon.rad.unknown+json';
 
     const result = validateDcrExtensionManifest(manifest);
@@ -521,6 +580,100 @@ describe('validateDcrExtensionManifest (radiologists)', () => {
         e.instancePath?.includes('content-type'),
       ),
     ).toBe(true);
+  });
+
+  describe('toolType / capability rules', () => {
+    function buildPartnerInitiatedManifest(): DcrExtensionManifest {
+      const manifest = buildValidRadiologistsManifest();
+      manifest.tools = [
+        {
+          name: 'draftReportGenerator',
+          toolType: 'partnerInitiated',
+          capability: 'preDraftReportGeneration',
+          description: 'Submits a draft report before the radiologist starts dictating',
+          outputs: [
+            {
+              name: 'draftReport',
+              description: 'Draft radiology report',
+              'content-type': 'application/vnd.ms-dragon.rad.draft-report+json',
+              schemaVersion: '1.0',
+            },
+          ],
+        },
+      ];
+      return manifest;
+    }
+
+    it('accepts a partnerInitiated preDraftReportGeneration tool without endpoint or inputs', () => {
+      const result = validateDcrExtensionManifest(buildPartnerInitiatedManifest());
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('accepts a manifest mixing contractBased and partnerInitiated tools', () => {
+      const manifest = buildValidRadiologistsManifest();
+      manifest.tools.push(buildPartnerInitiatedManifest().tools[0]);
+
+      const result = validateDcrExtensionManifest(manifest);
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.isValid).toBe(true);
+    });
+
+    it.each(['endpoint', 'inputs'] as const)('rejects a contractBased tool missing %s', (property) => {
+      const manifest = buildValidRadiologistsManifest();
+      delete manifest.tools[0][property];
+
+      const result = validateDcrExtensionManifest(manifest);
+
+      expect(result.isValid).toBe(false);
+      expect(
+        result.errors.some(
+          (e: SchemaError) => e.keyword === 'required' && e.params?.missingProperty === property,
+        ),
+      ).toBe(true);
+    });
+
+    it.each(['endpoint', 'inputs'] as const)('rejects a partnerInitiated tool that declares %s', (property) => {
+      const manifest = buildPartnerInitiatedManifest();
+      manifest.tools[0][property] = buildValidRadiologistsManifest().tools[0][property] as any;
+
+      const result = validateDcrExtensionManifest(manifest);
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors.some((e: SchemaError) => e.instancePath === `/tools/0/${property}`)).toBe(true);
+    });
+
+    it('rejects an unknown toolType', () => {
+      const manifest = buildValidRadiologistsManifest();
+      (manifest.tools[0] as any).toolType = 'unknownToolType';
+
+      const result = validateDcrExtensionManifest(manifest);
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors.some((e: SchemaError) => e.instancePath?.includes('toolType'))).toBe(true);
+    });
+
+    it('rejects a partnerInitiated tool with the qualityCheck capability', () => {
+      const manifest = buildPartnerInitiatedManifest();
+      (manifest.tools[0] as any).capability = 'qualityCheck';
+
+      const result = validateDcrExtensionManifest(manifest);
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors.some((e: SchemaError) => e.instancePath?.includes('capability'))).toBe(true);
+    });
+
+    it('rejects a contractBased tool with the preDraftReportGeneration capability', () => {
+      const manifest = buildValidRadiologistsManifest();
+      (manifest.tools[0] as any).capability = 'preDraftReportGeneration';
+
+      const result = validateDcrExtensionManifest(manifest);
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors.some((e: SchemaError) => e.instancePath?.includes('capability'))).toBe(true);
+    });
   });
 });
 

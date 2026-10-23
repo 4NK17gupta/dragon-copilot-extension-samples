@@ -6,7 +6,7 @@ A local development environment for testing and validating Microsoft Dragon Copi
 
 **Who it's for**: partners building radiology extensions.
 
-**Where it fits**: author your manifest with `tools/dragon-copilot-cli` — or generate one without leaving the sandbox via the **Generate Manifest** button in the Manifest Editor — run your extension (or one of the samples in `radiologists/src/samples/Workflow`), then load the manifest here to test.
+**Where it fits**: author your manifest with `tools/dragon-copilot-cli` — or generate one without leaving the sandbox via the **Generate Manifest** button in the Manifest Editor — run your extension (or one of the samples in `radiologists/src/samples/ContractBased`), then load the manifest here to test.
 
 ## Prerequisites
 
@@ -32,12 +32,82 @@ Open `http://localhost:3000` in your browser.
 
 > The Express server binds to `127.0.0.1` and is reachable only from the local machine.
 
+### Testing partner-initiated tools
+
+Upload a manifest with a `partnerInitiated` tool, select it, and click **Run Test**.
+When a `partnerInitiated` tool is selected, the **Setup** tab notes, right after the tool's
+partnerInitiated description, that auth is not supported for now for partner initiated flows.
+Instead of calling an extension, the sandbox waits for one POST at the displayed URL:
+`/api/partnerInitiated/{auth.tenantId}/{toolName}`. Send **only the raw output object**
+with `Content-Type: application/json` (a vendor `application/*+json` type also works).
+For draft reports, send the `draftReport` value from the ingest example, **not**
+the full ingest envelope or a map keyed by output name.
+
+For example, from the sandbox directory in PowerShell:
+
+```powershell
+$example = Get-Content ..\..\partner-initiated\samples\PreDraftReportGeneration-Ingest-Request-Example.json -Raw | ConvertFrom-Json
+$payload = $example.draftReport | ConvertTo-Json -Depth 30
+Invoke-RestMethod -Method Post -Uri '<displayed callback URL>' -ContentType 'application/json' -Body $payload
+```
+
+The body is validated against **every** manifest output declaration, resolved by
+content type and exact `schemaVersion`. The draft report schema version `1.0`
+is supported; unregistered types or versions fail validation rather than falling
+back. Valid bodies return 200; schema-invalid bodies return 422. Malformed JSON,
+unsupported media, and bodies over 1 MB complete the run as failures (400/415/413).
+Results and raw payloads are held in memory, not logged by the callback route.
+
+Only one run is active. The first matching request consumes it, including invalid
+requests; duplicates return 409. Wrong tenants or tool names return 404 without
+consuming it. Cancel, another **Run Test**, or replacing/clearing the loaded
+manifest discards the previous run and its result. A new run for the same tool
+reuses the callback URL, so only send requests intended for the currently armed run.
+Contract-based execution and validation are unchanged.
+
+The run API is `POST /api/manifest/partner-initiated/start` with
+`{ "capability": "preDraftReportGeneration", "tool": "<manifest tool name>" }`,
+then `GET` or `DELETE /api/manifest/partner-initiated/{runId}` to poll or cancel.
+The UI polls immediately and then every second while waiting; it does not use
+Server-Sent Events (SSE). Each completed run also contributes its aggregate
+validation to the session's consolidated report, including invalid requests.
+The callback works through the UI's port 3000 proxy or directly on API port 4000.
+This is a local schema-testing listener, not the authenticated production ingestion
+API: it does not match patient orders or persist reports. Use synthetic data.
+The authoritative `radiologists/partner-initiated/draft-report-schema.json`
+is synced into the server before dev/build/test and packaged with the built server.
+Its output content type is `application/vnd.ms-dragon.rad.draft-report+json`.
+After a valid submission, **Dragon Copilot Preview** displays an **AI draft** card
+with the submitted sections sorted by `sectionOrder`, uppercase section labels,
+and AI/third-party disclaimers. A `title` section appears without a label; no
+title or clinical content is inferred from study metadata. Both `plain_text`
+(preserving line breaks) and `markdown` section content are supported. Markdown
+HTML is displayed as text, links are non-interactive, and images are represented
+by their alternate text without loading remote resources. Invalid submissions
+show an error rather than a draft; the full payload remains in **Outputs**.
+The public capability identifier remains `preDraftReportGeneration`; existing
+tool names, template IDs, and example filenames are unchanged.
+
 ### Creating a manifest with the CLI wizard
 
 If you don't have a manifest yet, click **Generate Manifest** in the Manifest Editor toolbar. The
 dialog asks the core questions from `dragon-copilot radiologists init`, either starting from a built-in
-template (`quality-check`) or from your own values — extension name, tenant, tool endpoint, input data
-types, output, and optional relevance filtering by body part and modality.
+template (`quality-check` for Report Optimization, `pre-draft-report` for AI Draft) or from your own
+values — extension name, tenant, and one or more tools, each with a name, description, tool type,
+output, and optional relevance filtering by body part and modality.
+
+Each tool's **Tool type** decides what else is asked:
+
+- **Contract Based** (`qualityCheck`): Dragon Copilot calls your endpoint, so the tool needs an API
+  endpoint and at least one input data type.
+- **Partner Initiated** (`preDraftReportGeneration`, AI Draft): you submit draft reports to Dragon
+  Copilot, so there is no endpoint or input to fill in. The output name and description switch to the
+  draft report defaults unless you have already changed them. Relevance filtering is declarative and
+  not currently enforced for these tools.
+
+The capability is shown read-only; it follows from the tool type. Use **Add another tool** to put
+several tools, of either type, in one manifest. Tool names must be unique, and **Generate manifest**
+stays disabled until they are.
 
 **Generate manifest** posts the answers to `POST /api/cli/generate`, where the CLI's own manifest code
 assembles the YAML; the result is loaded into the editor and validated immediately, so you can go
@@ -128,7 +198,7 @@ extensions-sandbox/
 └── server/               # Express backend
     ├── scripts/
     │   ├── generate-output-schemas.ts  # Generates JSON Schemas from OpenAPI spec
-    │   └── sync-schemas.ts             # Syncs the manifest schema, OpenAPI spec, and CLI manifest core from their owners
+    │   └── sync-schemas.ts             # Syncs the manifest schema, OpenAPI spec, partner-initiated schemas, and CLI manifest core from their owners
     ├── src/
     │   ├── index.ts      # Server entry point
     │   ├── cli/
@@ -137,7 +207,8 @@ extensions-sandbox/
     │   ├── schemas/
     │   │   ├── radiologists/
     │   │   │   ├── radiologists-extension-manifest-schema.json  # Synced from the CLI (git-ignored)
-    │   │   │   └── radiologists-extensibility-api.yaml          # Synced from radiologists/ (git-ignored)
+    │   │   │   ├── radiologists-extensibility-api.yaml          # Synced from radiologists/ (git-ignored)
+    │   │   │   └── partner-initiated/                           # Draft report schemas and samples/ example payloads, synced from radiologists/partner-initiated/ (git-ignored)
     │   │   ├── generated-schemas/      # Auto-generated (do not edit by hand)
     │   │   │   ├── patient-information.json
     │   │   │   ├── quality-check-result.json
@@ -152,7 +223,9 @@ extensions-sandbox/
     │   ├── utils/
     │   │   └── schema-path.ts          # Central path resolution for schemas
     │   └── __tests__/
-    │       └── fixtures/               # Test resource files
+    │       └── fixtures/               # Test resource files, including:
+    │           ├── valid-manifest-partner-initiated.json   # AI Draft: one partnerInitiated tool, no endpoint/inputs
+    │           └── valid-manifest-mixed-tool-types.json    # contractBased + partnerInitiated tools (mirrors radiologists/manifest/extension.yaml)
     └── tsconfig.json     # TypeScript configuration
 ```
 
@@ -166,13 +239,20 @@ npm run generate-schemas
 
 The generation script (`scripts/generate-output-schemas.ts`) extracts the `PatientInformation`, `Report`, and `QualityCheckResult` schema definitions (and everything they reference, e.g. `Recommendation`, `Provenance`) from the OpenAPI YAML and produces standalone JSON Schema files. `patient-information.json` and `report.json` are used to validate and describe tool *inputs*; `quality-check-result.json` is used to validate extension *responses*.
 
-> **Note:** The sandbox owns neither contract it validates against, nor the code behind the CLI
-> wizard. All three are synced in at dev/build/test time by `scripts/sync-schemas.ts`, and the local
+> **Note:** The sandbox owns none of the contracts it validates against, nor the code behind the CLI
+> wizard. All of them are synced in at dev/build/test time by `scripts/sync-schemas.ts`, and the local
 > copies are git-ignored so the upstream copy stays the single source of truth:
 > the manifest schema (`radiologists-extension-manifest-schema.json`) and the manifest core
-> (`src/cli/radiologists/`) are owned by the `tools/dragon-copilot-cli` package, and the OpenAPI spec
-> (`radiologists-extensibility-api.yaml`) is owned by `radiologists/`.
-> `src/__tests__/schema-sync.test.ts` fails if any copy drifts from its source. The OpenAPI spec will
+> (`src/cli/radiologists/`) are owned by the `tools/dragon-copilot-cli` package, the OpenAPI spec
+> (`radiologists-extensibility-api.yaml`) is owned by `radiologists/`, and the draft report schemas
+> for `partnerInitiated` tools (`partner-initiated/draft-report-schema.json` and
+> `partner-initiated/draft-report-ingest-request-schema.json`) are owned by `radiologists/partner-initiated/`.
+> The example ingest request and retrieve response payloads (`PreDraftReportGeneration-*-Example.json`)
+> are copied byte-for-byte from `radiologists/partner-initiated/samples/` into `partner-initiated/samples/`;
+> their source paths are recorded in `src/utils/schema-path.ts`.
+> `src/__tests__/schema-sync.test.ts` fails if any copy drifts from its source, and
+> `src/__tests__/manifest-validation.test.ts` fails if the AI Draft and mixed manifest fixtures drift from
+> `radiologists/src/samples/PartnerInitiated/extension.yaml` and `radiologists/manifest/extension.yaml`. The OpenAPI spec will
 > be replaced with an internal package reference once `diag-radex-extension-service` publishes its
 > authoritative version.
 
@@ -231,12 +311,19 @@ Input and response validation return `200` when valid and `422` when the payload
 | GET    | /api/cli/options  | Templates, selectable values, and field defaults the wizard renders   |
 | POST   | /api/cli/generate | Generate a manifest from a template or wizard answers, returned as YAML |
 
-`POST /api/cli/generate` takes `mode: "template"` (with a `template` id) or `mode: "custom"` (with
-`extension` and `tool` objects), plus the `tenantId` in both cases. An omitted or blank `mode`
-defaults to `template`; any other value, including a non-string, is rejected. It returns `200` with
-the generated `yaml`, `400` when the request itself is unusable (unsupported `mode`, no tenant,
-unknown template, no tool), and `422` when the generated manifest fails schema validation — in
-which case the `yaml` is still returned alongside the errors so the editor can show them in context.
+`POST /api/cli/generate` takes `mode: "template"` (with a `template` id) or `mode: "custom"` (with an
+`extension` object and a `tools` array), plus the `tenantId` in both cases. Each tool has a `toolType`
+(`contractBased` by default); `endpoint` and `inputTypes` are used only for `contractBased` tools, and
+the capability defaults to the one paired with the tool type. A single `tool` object is still accepted
+in place of `tools`, but not both together. An omitted or blank `mode` defaults to `template`; any
+other value, including a non-string, is rejected. It returns `200` with the generated `yaml`, `400`
+when the request itself is unusable (unsupported `mode`, no tenant, unknown template, no tool, both
+`tool` and `tools`, duplicate tool names), and `422` when the generated manifest fails schema
+validation — in which case the `yaml` is still returned alongside the errors so the editor can show
+them in context.
+
+`GET /api/cli/options` also returns `capabilityByToolType` and `outputDefaultsByToolType`, and each
+template summary lists the `toolTypes` it uses.
 
 Generation runs the manifest core owned by `tools/dragon-copilot-cli` in-process (synced into
 `src/cli/radiologists/`); the CLI binary is never spawned, and it does not need to be installed.
@@ -281,13 +368,13 @@ server proxies `/api/*` to the backend.
 
 ## Testing against a sample extension
 
-Rather than shipping its own throwaway extension service, the sandbox is meant to be pointed at the canonical **Quickstart sample extension** that lives alongside these samples: [`SampleExtension.Radiologists.Web.Quickstart`](../../src/samples/Workflow/README.md). It implements the same `ProcessRequest`/`ProcessResponse` envelope contract from the Extensibility API for Dragon Copilot (radiologists) and returns a schema-valid `QualityCheckResult` payload, so you can exercise the sandbox UI end-to-end without deploying a real extension.
+Rather than shipping its own throwaway extension service, the sandbox is meant to be pointed at the canonical **Quickstart sample extension** that lives alongside these samples: [`SampleExtension.Radiologists.Web.Quickstart`](../../src/samples/ContractBased/README.md). It implements the same `ProcessRequest`/`ProcessResponse` envelope contract from the Extensibility API for Dragon Copilot (radiologists) and returns a schema-valid `QualityCheckResult` payload, so you can exercise the sandbox UI end-to-end without deploying a real extension.
 
 ### Start the sample extension
 
 ```bash
 # From the repository root
-cd radiologists/src/samples/Workflow
+cd radiologists/src/samples/ContractBased
 dotnet run --project SampleExtension.Radiologists.Web.Quickstart
 ```
 
@@ -297,7 +384,7 @@ The service listens on `http://localhost:5080` (https `https://localhost:7080`) 
 
 1. Start the sample extension (port `5080`, above).
 2. Start the sandbox (`npm run dev` from `extensions-sandbox/`).
-3. Load the shared manifest [`extension.yaml`](../../src/samples/Workflow/extension.yaml) — its `sampleQualityCheckTool` already targets `http://localhost:5080/v1/process`, so there is nothing to edit.
+3. Load the shared manifest [`extension.yaml`](../../src/samples/ContractBased/extension.yaml) — its `sampleQualityCheckTool` already targets `http://localhost:5080/v1/process`, so there is nothing to edit.
 4. Click **Validate**. The Testing panel stays closed until the manifest validates, so this step is required (uploading alone does not open it).
 5. Switch to the **Setup** tab, fill in the report inputs, and click **Run**.
 6. View results in the **Results** and **Outputs** tabs.
