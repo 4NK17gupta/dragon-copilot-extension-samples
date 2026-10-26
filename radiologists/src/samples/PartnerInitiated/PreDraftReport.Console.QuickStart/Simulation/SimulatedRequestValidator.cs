@@ -11,14 +11,16 @@ namespace PreDraftReport.Console.QuickStart.Simulation;
 /// </summary>
 /// <remarks>
 /// The status code and the shape of the errors match Dragon Copilot. The wording of an individual
-/// error message can differ.
+/// error message can differ. The body is held to the published request schema: property names are
+/// case-sensitive, the request can't have a property the schema doesn't define, values are checked
+/// as sent rather than trimmed, and no value can be null.
 /// </remarks>
 public static partial class SimulatedRequestValidator
 {
     private const string BodyKey = "draftReportRequestDto";
     private const string BodyRequired = "The draftReportRequestDto field is required.";
 
-    private static readonly JsonNodeOptions NodeOptions = new() { PropertyNameCaseInsensitive = true };
+    private static readonly string[] RequestProperties = ["publisherId", "offerId", "planId", "manifestName", "version", "toolName", "draftReport"];
     private static readonly string[] ReportContentFormats = ["structured_report"];
     private static readonly string[] StructuredReportFormats = ["plain_text", "markdown"];
     private static readonly string[] CodeSystems = ["SNOMED-CT", "ICD-10", "ICD-11", "RadLex", "LOINC", "CPT"];
@@ -46,7 +48,7 @@ public static partial class SimulatedRequestValidator
         JsonObject request;
         try
         {
-            switch (JsonNode.Parse(body, NodeOptions))
+            switch (JsonNode.Parse(body))
             {
                 case JsonObject parsed:
                     request = parsed;
@@ -69,7 +71,7 @@ public static partial class SimulatedRequestValidator
         }
         catch (ArgumentException ex)
         {
-            // Raised for a property that appears twice, for example with different casing.
+            // Raised for a property that appears twice in the same object.
             errors.AddBody("$", ex.Message);
             errors.AddBody(BodyKey, BodyRequired);
             return errors.ToValidation(null);
@@ -81,7 +83,8 @@ public static partial class SimulatedRequestValidator
     [GeneratedRegex("^[a-z][a-zA-Z0-9]*$")]
     private static partial Regex CamelCasePattern();
 
-    [GeneratedRegex(@"^\d+\.\d+\.\d+$")]
+    // The schema's pattern is an ECMAScript one, where \d is an ASCII digit; in .NET it's any Unicode digit.
+    [GeneratedRegex(@"^[0-9]+\.[0-9]+\.[0-9]+$")]
     private static partial Regex VersionPattern();
 
     [GeneratedRegex("^[a-z][a-z_]*$")]
@@ -102,16 +105,25 @@ public static partial class SimulatedRequestValidator
     {
         public void CheckRequest(JsonObject request)
         {
-            var publisherId = String(request, "publisherId", "$")?.Trim();
-            var offerId = String(request, "offerId", "$")?.Trim();
-            var planId = String(request, "planId", "$")?.Trim();
+            // The schema allows no other property; a differently cased name counts as another property.
+            foreach (var (name, _) in request)
+            {
+                if (!RequestProperties.Contains(name, StringComparer.Ordinal))
+                {
+                    errors.UnknownProperty(name);
+                }
+            }
+
+            var publisherId = String(request, "publisherId", "$");
+            var offerId = String(request, "offerId", "$");
+            var planId = String(request, "planId", "$");
             MarketplaceId(publisherId, "PublisherId");
             MarketplaceId(offerId, "OfferId");
             MarketplaceId(planId, "PlanId");
 
-            CamelCaseName(String(request, "manifestName", "$")?.Trim(), "ManifestName");
+            CamelCaseName(String(request, "manifestName", "$"), "ManifestName");
 
-            var version = String(request, "version", "$")?.Trim();
+            var version = String(request, "version", "$");
             if (version is not null)
             {
                 Pattern(version, VersionPattern(), "Version", "The Version must be in x.y.z form.");
@@ -119,7 +131,7 @@ public static partial class SimulatedRequestValidator
                 NoControlCharacters(version, "Version");
             }
 
-            CamelCaseName(String(request, "toolName", "$")?.Trim(), "ToolName");
+            CamelCaseName(String(request, "toolName", "$"), "ToolName");
 
             var draftReport = Object(request, "draftReport", "$", "DraftReport");
             if (Required(draftReport, "DraftReport", "DraftReport"))
@@ -127,10 +139,11 @@ public static partial class SimulatedRequestValidator
                 CheckDraftReport(draftReport!, "DraftReport", "$.draftReport");
             }
 
-            // The Marketplace IDs are checked together only once every property is valid.
+            // The Marketplace IDs are checked together only once every property is valid. As in the
+            // schema, an ID counts as supplied when it's present, whatever its value.
             if (!errors.HasBodyErrors)
             {
-                var supplied = new[] { publisherId, offerId, planId }.Count(id => !string.IsNullOrWhiteSpace(id));
+                var supplied = new[] { publisherId, offerId, planId }.Count(id => id is not null);
                 if (supplied is > 0 and < 3)
                 {
                     errors.AddBody(
@@ -252,7 +265,7 @@ public static partial class SimulatedRequestValidator
             RequiredText(String(section, "content", path), $"{key}.Content", "Content");
             RequiredValue(Boolean(section, "aiGenerated", path), $"{key}.AiGenerated", "AiGenerated");
 
-            var aiConfidence = Number(section, "aiConfidence", path, allowNull: false);
+            var aiConfidence = Number(section, "aiConfidence", path);
             if (RequiredValue(aiConfidence, $"{key}.AiConfidence", "AiConfidence"))
             {
                 Range(aiConfidence!.Value, 0, 1, $"{key}.AiConfidence", "AiConfidence");
@@ -282,18 +295,18 @@ public static partial class SimulatedRequestValidator
 
         private void CheckQualityMetrics(JsonObject metrics, string key, string path)
         {
-            if (Number(metrics, "overallConfidenceScore", path, allowNull: true) is { } overall)
+            if (Number(metrics, "overallConfidenceScore", path) is { } overall)
             {
                 Range(overall, 0, 1, $"{key}.OverallConfidenceScore", "OverallConfidenceScore");
             }
 
-            var imageQuality = Number(metrics, "imageQualityScore", path, allowNull: false);
+            var imageQuality = Number(metrics, "imageQualityScore", path);
             if (RequiredValue(imageQuality, $"{key}.ImageQualityScore", "ImageQualityScore"))
             {
                 Range(imageQuality!.Value, 0, 1, $"{key}.ImageQualityScore", "ImageQualityScore");
             }
 
-            if (Number(metrics, "diagnosticCertaintyScore", path, allowNull: true) is { } certainty)
+            if (Number(metrics, "diagnosticCertaintyScore", path) is { } certainty)
             {
                 Range(certainty, 0, 1, $"{key}.DiagnosticCertaintyScore", "DiagnosticCertaintyScore");
             }
@@ -411,7 +424,7 @@ public static partial class SimulatedRequestValidator
 
         private string? String(JsonObject parent, string name, string path)
         {
-            var node = parent[name];
+            var node = Value(parent, name, path);
             if (node is null)
             {
                 return null;
@@ -428,7 +441,7 @@ public static partial class SimulatedRequestValidator
 
         private JsonObject? Object(JsonObject parent, string name, string path, string typeName)
         {
-            var node = parent[name];
+            var node = Value(parent, name, path);
             if (node is null or JsonObject)
             {
                 return node as JsonObject;
@@ -440,7 +453,7 @@ public static partial class SimulatedRequestValidator
 
         private JsonArray? Array(JsonObject parent, string name, string path)
         {
-            var node = parent[name];
+            var node = Value(parent, name, path);
             if (node is null or JsonArray)
             {
                 return node as JsonArray;
@@ -452,14 +465,17 @@ public static partial class SimulatedRequestValidator
 
         private JsonObject? Element(JsonArray array, int index, string path, string typeName)
         {
-            var node = array[index];
-            if (node is null or JsonObject)
+            switch (array[index])
             {
-                return node as JsonObject;
+                case JsonObject element:
+                    return element;
+                case null:
+                    errors.NullValue(path);
+                    return null;
+                default:
+                    errors.TypeError(path, typeName);
+                    return null;
             }
-
-            errors.TypeError(path, typeName);
-            return null;
         }
 
         private void StringArray(JsonObject parent, string name, string path)
@@ -467,21 +483,26 @@ public static partial class SimulatedRequestValidator
             var array = Array(parent, name, path);
             for (var i = 0; array is not null && i < array.Count; i++)
             {
-                if (array[i] is not null and not JsonValue)
+                if (array[i] is null)
                 {
-                    errors.TypeError($"{path}.{name}[{i}]", "System.String");
+                    errors.NullValue($"{path}.{name}[{i}]");
                 }
-                else if (array[i] is JsonValue value && !value.TryGetValue(out string? _))
+                else if (array[i] is not JsonValue value || !value.TryGetValue(out string? _))
                 {
                     errors.TypeError($"{path}.{name}[{i}]", "System.String");
                 }
             }
         }
 
-        private double? Number(JsonObject parent, string name, string path, bool allowNull)
+        private double? Number(JsonObject parent, string name, string path)
         {
+            var node = Value(parent, name, path);
+            if (node is null)
+            {
+                return null;
+            }
+
             // Dragon Copilot also accepts a number written as a string, such as "0.9".
-            var present = parent.TryGetPropertyValue(name, out var node);
             if (node is JsonValue value)
             {
                 if (value.TryGetValue(out double number))
@@ -497,17 +518,18 @@ public static partial class SimulatedRequestValidator
                 }
             }
 
-            if (present && (node is not null || !allowNull))
-            {
-                errors.TypeError($"{path}.{name}", "System.Double");
-            }
-
+            errors.TypeError($"{path}.{name}", "System.Double");
             return null;
         }
 
         private int? Integer(JsonObject parent, string name, string path)
         {
-            var present = parent.TryGetPropertyValue(name, out var node);
+            var node = Value(parent, name, path);
+            if (node is null)
+            {
+                return null;
+            }
+
             if (node is JsonValue value)
             {
                 if (value.TryGetValue(out int number))
@@ -522,28 +544,42 @@ public static partial class SimulatedRequestValidator
                 }
             }
 
-            if (present)
-            {
-                errors.TypeError($"{path}.{name}", "System.Int32");
-            }
-
+            errors.TypeError($"{path}.{name}", "System.Int32");
             return null;
         }
 
         private bool? Boolean(JsonObject parent, string name, string path)
         {
-            var present = parent.TryGetPropertyValue(name, out var node);
+            var node = Value(parent, name, path);
+            if (node is null)
+            {
+                return null;
+            }
+
             if (node is JsonValue value && value.TryGetValue(out bool flag))
             {
                 return flag;
             }
 
-            if (present)
+            errors.TypeError($"{path}.{name}", "System.Boolean");
+            return null;
+        }
+
+        // Returns the property's value, or null when it's missing. The schema allows null for no
+        // property, so a property that's present but null is an error rather than a missing value.
+        private JsonNode? Value(JsonObject parent, string name, string path)
+        {
+            if (!parent.TryGetPropertyValue(name, out var node))
             {
-                errors.TypeError($"{path}.{name}", "System.Boolean");
+                return null;
             }
 
-            return null;
+            if (node is null)
+            {
+                errors.NullValue($"{path}.{name}");
+            }
+
+            return node;
         }
     }
 
@@ -555,17 +591,22 @@ public static partial class SimulatedRequestValidator
     {
         private readonly Dictionary<string, List<string>> _routeErrors = new(StringComparer.Ordinal);
         private readonly Dictionary<string, List<string>> _bodyErrors = new(StringComparer.Ordinal);
-        private (string Path, string Message)? _typeError;
+        private (string Path, string Message)? _readError;
 
-        public bool HasBodyErrors => _bodyErrors.Count > 0 || _typeError is not null;
+        public bool HasBodyErrors => _bodyErrors.Count > 0 || _readError is not null;
 
         public void AddRoute(string key, string message) => Add(_routeErrors, key, message);
 
         public void AddBody(string key, string message) => Add(_bodyErrors, key, message);
 
         public void TypeError(string path, string typeName) =>
-            // Reading stops at the first value of the wrong type, so only that one is reported.
-            _typeError ??= (path, $"The JSON value could not be converted to {typeName}. Path: {path}.");
+            ReadError(path, $"The JSON value could not be converted to {typeName}. Path: {path}.");
+
+        public void NullValue(string path) =>
+            ReadError(path, $"The JSON value can't be null. Path: {path}.");
+
+        public void UnknownProperty(string name) =>
+            ReadError($"$.{name}", $"The JSON property '{name}' isn't defined by the request schema. Property names are case-sensitive. Path: $.{name}.");
 
         public SubmissionValidation ToValidation(JsonObject? body)
         {
@@ -575,10 +616,10 @@ public static partial class SimulatedRequestValidator
                 errors[key] = [.. messages];
             }
 
-            if (_typeError is { } typeError)
+            if (_readError is { } readError)
             {
                 // A body that can't be read is reported instead of its rules, as Dragon Copilot does.
-                errors[typeError.Path] = [typeError.Message];
+                errors[readError.Path] = [readError.Message];
                 errors[BodyKey] = [BodyRequired];
             }
             else
@@ -602,6 +643,10 @@ public static partial class SimulatedRequestValidator
 
             messages.Add(message);
         }
+
+        private void ReadError(string path, string message) =>
+            // Reading stops at the first value that can't be read, so only that one is reported.
+            _readError ??= (path, message);
     }
 }
 

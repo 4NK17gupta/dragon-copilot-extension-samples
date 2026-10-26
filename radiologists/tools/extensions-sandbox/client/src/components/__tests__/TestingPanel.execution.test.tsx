@@ -84,7 +84,7 @@ describe('TestingPanel partner-initiated execution', () => {
     expect(within(dialog).getByText(/Waiting for a POST request on/)).toHaveTextContent(
       new URL(callbackPath, window.location.origin).href,
     );
-    expect(within(dialog).getByText('Send the raw output payload as JSON, without an ingest envelope.')).toBeInTheDocument();
+    expect(within(dialog).getByText('Send the raw draft report or the full ingest envelope as JSON.')).toBeInTheDocument();
     expect(await within(dialog).findByRole('progressbar', { name: 'Waiting for request' })).not.toHaveAttribute('aria-valuenow');
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     expect(runButton).toBeDisabled();

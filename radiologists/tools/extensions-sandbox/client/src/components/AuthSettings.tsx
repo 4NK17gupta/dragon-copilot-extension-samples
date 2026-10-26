@@ -31,6 +31,35 @@ interface TestResult {
   troubleshooting?: string[];
 }
 
+const UNREACHABLE_MESSAGE = 'Could not reach the sandbox server.';
+
+/**
+ * POSTs a (partial) auth config and returns the server's redacted view.
+ * Throws an Error with a user-facing message when the save does not succeed.
+ */
+async function postAuthConfig(body: Record<string, unknown>): Promise<SafeAuthConfig> {
+  let res: Response;
+  try {
+    res = await fetch('/api/auth/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(UNREACHABLE_MESSAGE);
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    const detail = typeof data?.error === 'string' && data.error ? data.error : `HTTP ${res.status}`;
+    throw new Error(`Could not save auth settings: ${detail}`);
+  }
+  return (await res.json()) as SafeAuthConfig;
+}
+
+function toMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Could not save auth settings.';
+}
+
 /**
  * Auth configuration panel for sandbox-to-extension service-to-service
  * authentication (Entra ID client credentials). The client secret is
@@ -41,6 +70,8 @@ export function AuthSettings() {
   const [config, setConfig] = useState<SafeAuthConfig | null>(null);
   const [secret, setSecret] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  const [togglePending, setTogglePending] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -61,9 +92,11 @@ export function AuthSettings() {
     setTestResult(null);
   }, []);
 
-  const save = useCallback(async () => {
-    if (!config) return;
+  /** Saves every field; resolves to false (and shows the error) when the save fails. */
+  const save = useCallback(async (): Promise<boolean> => {
+    if (!config) return false;
     setSaving(true);
+    setSaveError(null);
     try {
       const body: Record<string, unknown> = {
         enabled: config.enabled,
@@ -74,27 +107,45 @@ export function AuthSettings() {
       // Only send the secret when the user typed a new one.
       if (secret) body.clientSecret = secret;
 
-      const res = await fetch('/api/auth/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        const updated: SafeAuthConfig = await res.json();
-        setConfig(updated);
-        setSecret('');
-      }
+      const updated = await postAuthConfig(body);
+      setConfig(updated);
+      setSecret('');
+      return true;
+    } catch (err) {
+      setSaveError(toMessage(err));
+      return false;
     } finally {
       setSaving(false);
     }
   }, [config, secret]);
 
+  /**
+   * Persists the enabled flag as soon as it is toggled, so executions honour the
+   * switch without a separate Save. Unsaved edits to the other fields are kept.
+   */
+  const toggleEnabled = useCallback(async (enabled: boolean) => {
+    update({ enabled });
+    setSaveError(null);
+    setTogglePending(true);
+    try {
+      const updated = await postAuthConfig({ enabled });
+      setConfig((prev) =>
+        prev ? { ...prev, enabled: updated.enabled, hasSecret: updated.hasSecret } : updated,
+      );
+    } catch (err) {
+      setConfig((prev) => (prev ? { ...prev, enabled: !enabled } : prev));
+      setSaveError(toMessage(err));
+    } finally {
+      setTogglePending(false);
+    }
+  }, [update]);
+
   const testConnection = useCallback(async () => {
     setTesting(true);
     setTestResult(null);
     try {
-      // Save first so the test uses the latest values.
-      await save();
+      // Save first so the test uses the latest values; the save error is shown instead.
+      if (!(await save())) return;
       const res = await fetch('/api/auth/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,7 +154,7 @@ export function AuthSettings() {
       const data: TestResult = await res.json();
       setTestResult(data);
     } catch {
-      setTestResult({ success: false, error: 'Could not reach the sandbox server.' });
+      setTestResult({ success: false, error: UNREACHABLE_MESSAGE });
     } finally {
       setTesting(false);
     }
@@ -118,13 +169,20 @@ export function AuthSettings() {
       <div className="auth-settings-header">
         <Switch
           checked={config.enabled}
-          onChange={(_, data) => update({ enabled: data.checked })}
+          disabled={togglePending || saving}
+          onChange={(_, data) => void toggleEnabled(data.checked)}
           label="Authenticate calls with Entra ID (client credentials)"
         />
         <Link className="auth-toggle-link" onClick={() => setExpanded((e) => !e)}>
           {expanded ? 'Hide settings' : 'Configure'}
         </Link>
       </div>
+
+      {saveError && (
+        <div role="alert" className="auth-test-result auth-test-error auth-save-error">
+          {saveError}
+        </div>
+      )}
 
       {expanded && (
         <div className="auth-settings-body">
@@ -173,10 +231,10 @@ export function AuthSettings() {
           </div>
 
           <div className="auth-settings-actions">
-            <Button appearance="primary" onClick={save} disabled={saving}>
+            <Button appearance="primary" onClick={() => void save()} disabled={saving || togglePending}>
               {saving ? 'Saving…' : 'Save'}
             </Button>
-            <Button onClick={testConnection} disabled={testing}>
+            <Button onClick={testConnection} disabled={testing || togglePending}>
               {testing ? <Spinner size="tiny" /> : 'Test connection'}
             </Button>
           </div>

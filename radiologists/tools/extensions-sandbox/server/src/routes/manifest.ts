@@ -4,11 +4,11 @@ import yaml from 'js-yaml';
 import { sessionStore } from '../store/session.js';
 import { getToolsForCapability } from '../utils/tool-metadata.js';
 import { parseCapabilities } from '../utils/capabilities-parser.js';
-import { callExtensionAsync, buildProcessRequest } from '../services/extension-client.js';
+import { callExtensionAsync, buildProcessRequest, canSendBearerToken } from '../services/extension-client.js';
 import { acquireToken, buildClaimChecks, AuthError } from '../services/auth.js';
 import { validateToolInputs, validateToolResponse } from '../services/validation.js';
 import { describeManifest, summarizeManifest, validateManifestDocument } from '../services/manifest-schema.js';
-import { parseAndGroupInputs } from 'extensions-sandbox-shared';
+import { InvalidInputError, parseAndGroupInputs } from 'extensions-sandbox-shared';
 import { createLogger } from '../utils/logger.js';
 import { partnerInitiatedRunRouter } from './partner-initiated.js';
 
@@ -19,6 +19,8 @@ const log = createLogger('manifest');
 
 const upload = multer({
   limits: { fileSize: 1 * 1024 * 1024 }, // 1MB limit
+  // Keep this synchronous: with multer below 2.5.0, an asynchronous fileFilter lets
+  // one aborted upload crash the process (GHSA-q7qp-rjg7-q26m).
   fileFilter: (_req, file, cb) => {
     const allowedExtensions = ['.json', '.yaml', '.yml'];
     const ext = file.originalname.toLowerCase().slice(file.originalname.lastIndexOf('.'));
@@ -362,13 +364,21 @@ manifestRouter.post('/execute', async (req, res) => {
   // paths (e.g. "report.reportText") into nested objects keyed by input name,
   // so they map onto the ProcessRequest's named-input properties. Parsed once
   // here so the payload that is validated is the payload that is sent.
-  const parsedInputs = parseAndGroupInputs(inputs ?? {});
+  let parsedInputs: Record<string, unknown>;
+  try {
+    parsedInputs = parseAndGroupInputs(inputs ?? {});
+  } catch (err: unknown) {
+    if (!(err instanceof InvalidInputError)) throw err;
+    log.warn(`Execute rejected: ${err.message} (400).`);
+    res.status(400).json({ error: err.message });
+    return;
+  }
 
   // Validate the inputs against the schemas for their declared content-types
   // before making the call. Forwarding a payload the platform would reject
   // makes the sandbox report success on something that cannot ship, so this
   // fails closed rather than warning and continuing.
-  const inputValidation = validateToolInputs(toolName, parsedInputs);
+  const inputValidation = validateToolInputs(tool, parsedInputs);
   if (inputValidation.some((r) => !r.valid)) {
     const failed = inputValidation.filter((r) => !r.valid).length;
     log.warn(
@@ -387,9 +397,23 @@ manifestRouter.post('/execute', async (req, res) => {
   // access token (client credentials flow) and forward it as a Bearer token.
   // When disabled, fall back to any bearerToken supplied directly in the body
   // (preserves the prior behavior for testing unauthenticated endpoints).
+  const authConfig = sessionStore.getAuthConfig();
+  if ((authConfig.enabled || bearerToken) && !canSendBearerToken(tool.endpoint)) {
+    log.warn(
+      `Execute rejected: tool '${toolName}' endpoint is neither HTTPS nor localhost, ` +
+      'so a bearer token would travel in cleartext (400).',
+    );
+    res.status(400).json({
+      error:
+        'Refusing to send a bearer token over plain HTTP. ' +
+        'Use an https:// endpoint, or an http://localhost endpoint for local testing.',
+      cause: 'The tool endpoint is neither HTTPS nor a localhost address.',
+    });
+    return;
+  }
+
   let resolvedToken: string | undefined = bearerToken;
   let claimChecks: ReturnType<typeof buildClaimChecks> | undefined;
-  const authConfig = sessionStore.getAuthConfig();
   if (authConfig.enabled) {
     try {
       const tokenResult = await acquireToken(authConfig);
@@ -438,7 +462,7 @@ manifestRouter.post('/execute', async (req, res) => {
     const responsePayload = payloadMap
       ? Object.values(payloadMap)[0] ?? {}
       : result.rawBody ?? {};
-    const validation = validateToolResponse(toolName, responsePayload);
+    const validation = validateToolResponse(tool, responsePayload);
     sessionStore.addValidationResult(validation);
 
     res.json({

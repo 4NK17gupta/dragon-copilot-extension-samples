@@ -64,7 +64,7 @@ function PartnerInitiatedPreview({
         <>
           {!report && (
             <p className="dc-preview-message dc-preview-message-info" role="status">
-              No draft report received yet. Run Test from the Setup tab, then POST the raw draft report to the displayed URL.
+              No draft report received yet. Run Test from the Setup tab, then POST the raw draft report or the full ingest envelope to the displayed URL.
             </p>
           )}
           {report && !hasContent && (

@@ -20,7 +20,7 @@ public sealed class SimulatedDragonCopilotHandlerTests : IDisposable
 
     private const string Manifest = """
         name: sampleRadiologyExtension
-        version: 0.0.1
+        version: 1.0.0
         auth:
           tenantId: 00000000-0000-0000-0000-000000000000
         tools:
@@ -307,6 +307,64 @@ public sealed class SimulatedDragonCopilotHandlerTests : IDisposable
         Assert.Equal(["The draftReportRequestDto field is required."], errors["draftReportRequestDto"]);
     }
 
+    [Fact]
+    public async Task PropertyNamesAreCaseSensitive()
+    {
+        using var client = CreateClient();
+        var body = ValidBody();
+        var draftReport = body["draftReport"];
+        body.Remove("draftReport");
+        body["DraftReport"] = draftReport;
+
+        using var response = await PostAsync(client, body);
+
+        var errors = await AssertValidationProblemAsync(response);
+        Assert.Equal(
+            ["The JSON property 'DraftReport' isn't defined by the request schema. Property names are case-sensitive. Path: $.DraftReport."],
+            errors["$.DraftReport"]);
+        Assert.Equal(["The draftReportRequestDto field is required."], errors["draftReportRequestDto"]);
+    }
+
+    [Theory]
+    [InlineData("$schema")]
+    [InlineData("extensionVersion")]
+    public async Task ARequestPropertyTheSchemaDoesNotDefineReturnsBadRequest(string name)
+    {
+        using var client = CreateClient();
+        var body = ValidBody();
+        body[name] = "1.0.0";
+
+        using var response = await PostAsync(client, body);
+
+        var errors = await AssertValidationProblemAsync(response);
+        Assert.Equal(
+            [$"The JSON property '{name}' isn't defined by the request schema. Property names are case-sensitive. Path: $.{name}."],
+            errors[$"$.{name}"]);
+    }
+
+    [Theory]
+    [InlineData("draftReport.identifier", "null", "$.draftReport.identifier")]
+    [InlineData("draftReport.category", "null", "$.draftReport.category")]
+    [InlineData("draftReport.imagingStudy.bodyParts", "[null]", "$.draftReport.imagingStudy.bodyParts[0]")]
+    [InlineData("draftReport.imagingStudyPriors", "[null]", "$.draftReport.imagingStudyPriors[0]")]
+    [InlineData("draftReport.qualityMetrics", """{ "overallConfidenceScore": null, "imageQualityScore": 0.9 }""", "$.draftReport.qualityMetrics.overallConfidenceScore")]
+    [InlineData("draftReport.reportContent.structuredReport.sections", "[null]", "$.draftReport.reportContent.structuredReport.sections[0]")]
+    [InlineData("draftReport.reportContent.structuredReport.sections.0.codes", "[null]", "$.draftReport.reportContent.structuredReport.sections[0].codes[0]")]
+    public async Task ANullValueReturnsBadRequest(string path, string json, string jsonPath)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        using var client = CreateClient();
+        var body = ValidBody();
+        var (parent, name) = Locate(body, path);
+        parent[name] = JsonNode.Parse(json);
+
+        using var response = await PostAsync(client, body);
+
+        var errors = await AssertValidationProblemAsync(response);
+        Assert.Equal([$"The JSON value can't be null. Path: {jsonPath}."], errors[jsonPath]);
+        Assert.Equal(["The draftReportRequestDto field is required."], errors["draftReportRequestDto"]);
+    }
+
     [Theory]
     [InlineData("draftReport", "DraftReport", "The DraftReport field is required.")]
     [InlineData("draftReport.reportContent.structuredReport.sections.0.aiGenerated", "DraftReport.ReportContent.StructuredReport.Sections[0].AiGenerated", "The AiGenerated field is required.")]
@@ -328,6 +386,10 @@ public sealed class SimulatedDragonCopilotHandlerTests : IDisposable
 
     [Theory]
     [InlineData("version", "\"1.2\"", "Version", "The Version must be in x.y.z form.")]
+    [InlineData("version", "\" 1.0.0\"", "Version", "The Version must be in x.y.z form.")]
+    [InlineData("version", "\"\u0661.\u0662.\u0663\"", "Version", "The Version must be in x.y.z form.")]
+    [InlineData("manifestName", "\" sampleRadiologyExtension \"", "ManifestName", "The ManifestName must be camelCase and contain only letters and digits.")]
+    [InlineData("toolName", "\"preDraftReportGeneratorTool \"", "ToolName", "The ToolName must be camelCase and contain only letters and digits.")]
     [InlineData("draftReport.reportContent.format", "\"free_text\"", "DraftReport.ReportContent.Format", "The Format field does not equal any of the values specified in AllowedValuesAttribute.")]
     [InlineData("draftReport.imagingStudyPriors", """[{ "modality": "CR" }]""", "DraftReport.ImagingStudyPriors[0].StudyUid", "The StudyUid field is required.")]
     [InlineData("draftReport.qualityMetrics", """{ "overallConfidenceScore": 0.5 }""", "DraftReport.QualityMetrics.ImageQualityScore", "The ImageQualityScore field is required.")]

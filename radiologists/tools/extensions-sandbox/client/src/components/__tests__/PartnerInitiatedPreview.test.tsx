@@ -55,6 +55,18 @@ describe('PartnerInitiatedPreview', () => {
     expect(container.querySelector('.dc-preview-json')).toBeNull();
   });
 
+  it('renders the draft report from a full ingest envelope without showing envelope metadata', () => {
+    const { container } = render(
+      <DragonCopilotPreview toolType="partnerInitiated" result={{ ...validResult, rawBody: example }} />,
+    );
+    const draft = screen.getByRole('region', { name: 'AI draft' });
+    expect(within(draft).getByText('No acute cardiopulmonary abnormality.')).toBeVisible();
+    expect(draft).not.toHaveTextContent(example.manifestName);
+    expect(draft).not.toHaveTextContent(example.toolName);
+    expect(draft).not.toHaveTextContent(example.draftReport.identifier);
+    expect(container.querySelector('.dc-preview-json')).toBeNull();
+  });
+
   it('orders sections without mutating the input, preserves ties and plain text, and does not infer missing sections', () => {
     const sections = [
       section('impression', 'Last section', 5),
@@ -131,7 +143,8 @@ describe('PartnerInitiatedPreview', () => {
   });
 
   it.each([
-    { ...validResult, rawBody: example },
+    { ...validResult, rawBody: { manifestName: example.manifestName, toolName: example.toolName } },
+    { ...validResult, rawBody: { ...example, draftReport: 'not a report' } },
     { ...validResult, rawBody: '<html>Not JSON</html>' },
     resultWithSections([section('findings', 'Unsupported encoding', 1)], 'html'),
     resultWithSections([{ name: 'findings', content: 'Missing order' }]),

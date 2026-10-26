@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Dragon.Copilot.Radiologists.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Identity.Client;
@@ -27,6 +28,18 @@ public static class Program
         ["ToolNotFound"] = "The manifest declares no partnerInitiated tool named toolName with the preDraftReportGeneration capability.",
         ["OrderNotFound"] = "No order in the environment has the accession number in draftReport.imagingStudy.accessionNumber.",
         ["MultipleOrdersMatched"] = "More than one order in the environment has the accession number in draftReport.imagingStudy.accessionNumber.",
+    };
+
+    // 404 and 409 responses carry message and reason; a 400 is a problem details object with title and errors.
+    private static readonly string[] ErrorSummaryProperties = ["message", "title", "detail"];
+
+    /// <summary>
+    /// Gets how a payload file is read: as the request body is written, except that a property the
+    /// model doesn't define, often a misspelling, fails the run instead of being silently dropped.
+    /// </summary>
+    internal static JsonSerializerOptions PayloadSerializerOptions { get; } = new(DraftReportClient.SerializerOptions)
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
     /// <summary>
@@ -248,7 +261,7 @@ public static class Program
             return 1;
         }
 
-        return Report(result, request, output);
+        return Report(result, output);
     }
 
     private static List<string> MissingAuthenticationSettings(AuthenticationSettings authentication)
@@ -283,7 +296,7 @@ public static class Program
         try
         {
             var json = await File.ReadAllTextAsync(payloadPath, cancellationToken).ConfigureAwait(false);
-            var request = JsonSerializer.Deserialize<DraftReportIngestRequest>(json);
+            var request = JsonSerializer.Deserialize<DraftReportIngestRequest>(json, PayloadSerializerOptions);
             if (request is null)
             {
                 await output.WriteLineAsync($"Payload is empty: {payloadPath}").ConfigureAwait(false);
@@ -293,8 +306,16 @@ public static class Program
         }
         catch (JsonException ex)
         {
-            // Also raised when a required property with no null value, such as aiGenerated, is missing.
-            await output.WriteLineAsync($"Payload is not a valid draft report ingest request: {ex.Message}").ConfigureAwait(false);
+            // Also raised when a required property with no null value, such as aiGenerated or sections,
+            // is missing, and when a property isn't one the model defines.
+            var message = ex.Message;
+            if (ex.Path is not null && !message.Contains(ex.Path, StringComparison.Ordinal))
+            {
+                // Those two messages name the property but not where it is.
+                message += $" Path: {ex.Path}.";
+            }
+
+            await output.WriteLineAsync($"Payload is not a valid draft report ingest request: {message}").ConfigureAwait(false);
             return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -339,12 +360,13 @@ public static class Program
                 : $"  Not installed:   the manifest {installation.ManifestPath} {installation.Problem}");
         }
 
-        output.WriteLine($"  Orders:          {string.Join(", ", environment.Orders)}");
+        // Accession numbers identify a patient's study, so only their count is printed.
+        output.WriteLine($"  Orders:          {environment.Orders.Count}");
         output.WriteLine($"  Stored results:  {environment.StoredResultsPath}");
         output.WriteLine();
     }
 
-    private static int Report(SubmissionResult result, DraftReportIngestRequest request, TextWriter output)
+    private static int Report(SubmissionResult result, TextWriter output)
     {
         output.WriteLine();
         output.WriteLine(result.Reason is null
@@ -355,7 +377,7 @@ public static class Program
         if (result.StatusCode == HttpStatusCode.OK)
         {
             output.WriteLine(
-                $"  Stored. Dragon Copilot shows the draft when the radiologist opens the order with accession number {request.DraftReport?.ImagingStudy?.AccessionNumber}.");
+                "  Stored. Dragon Copilot shows the draft when the radiologist opens the order whose accession number is in draftReport.imagingStudy.accessionNumber.");
             return 0;
         }
 
@@ -363,15 +385,12 @@ public static class Program
         {
             // Resending the same identifier never stores the draft twice, which is what makes a retry safe.
             output.WriteLine(
-                $"  A result with draftReport.identifier {request.DraftReport?.Identifier} is already stored, so nothing was stored again. " +
+                "  A result with this draftReport.identifier is already stored, so nothing was stored again. " +
                 "If this was a retry, there's nothing more to do. To replace the draft, submit it with a new identifier.");
             return 0;
         }
 
-        if (result.Body.Length > 0)
-        {
-            output.WriteLine($"  {result.Body}");
-        }
+        WriteErrorDetails(result.Body, output);
 
         if (result.Reason is not null && ReasonHints.TryGetValue(result.Reason, out var hint))
         {
@@ -383,5 +402,56 @@ public static class Program
         }
 
         return 1;
+    }
+
+    /// <summary>
+    /// Prints the documented fields of an error response rather than its raw body, so that whatever
+    /// else a response carries doesn't end up in a log.
+    /// </summary>
+    private static void WriteErrorDetails(string body, TextWriter output)
+    {
+        if (body.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var error = document.RootElement;
+            if (error.ValueKind != JsonValueKind.Object)
+            {
+                output.WriteLine("  The response body isn't a JSON error object, so it isn't shown.");
+                return;
+            }
+
+            foreach (var name in ErrorSummaryProperties)
+            {
+                if (error.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String)
+                {
+                    output.WriteLine($"  {value.GetString()}");
+                }
+            }
+
+            if (error.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var property in errors.EnumerateObject().Where(property => property.Value.ValueKind == JsonValueKind.Array))
+                {
+                    var messages = property.Value.EnumerateArray()
+                        .Where(message => message.ValueKind == JsonValueKind.String)
+                        .Select(message => message.GetString());
+                    output.WriteLine($"  {property.Name}: {string.Join(" ", messages)}");
+                }
+            }
+
+            if (error.TryGetProperty("traceId", out var traceId) && traceId.ValueKind == JsonValueKind.String)
+            {
+                output.WriteLine($"  traceId: {traceId.GetString()}");
+            }
+        }
+        catch (JsonException)
+        {
+            output.WriteLine("  The response body isn't JSON, so it isn't shown.");
+        }
     }
 }

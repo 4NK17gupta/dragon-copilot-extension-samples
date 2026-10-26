@@ -31,6 +31,11 @@ Open `http://localhost:3000` in your browser.
 `npm run dev` starts both the frontend (Vite dev server on port 3000) and the backend (Express on port 4000) concurrently, with hot-reload. The frontend proxies API calls to the backend automatically, so port 3000 is the only URL you need.
 
 > The Express server binds to `127.0.0.1` and is reachable only from the local machine.
+> It also rejects (`403`) requests whose `Host` header is not `localhost`, `127.0.0.1` or `[::1]`,
+> and state-changing requests sent from a non-local browser `Origin`, so other web pages cannot
+> drive it through DNS rebinding or cross-site form posts. Clients that send no `Origin`
+> (curl, the samples) are unaffected. Compressed request bodies (`Content-Encoding: gzip`,
+> `deflate` or `br`) are rejected with `415`; send JSON uncompressed.
 
 ### Testing partner-initiated tools
 
@@ -38,10 +43,14 @@ Upload a manifest with a `partnerInitiated` tool, select it, and click **Run Tes
 When a `partnerInitiated` tool is selected, the **Setup** tab notes, right after the tool's
 partnerInitiated description, that auth is not supported for now for partner initiated flows.
 Instead of calling an extension, the sandbox waits for one POST at the displayed URL:
-`/api/partnerInitiated/{auth.tenantId}/{toolName}`. Send **only the raw output object**
-with `Content-Type: application/json` (a vendor `application/*+json` type also works).
-For draft reports, send the `draftReport` value from the ingest example, **not**
-the full ingest envelope or a map keyed by output name.
+`/api/partnerInitiated/{auth.tenantId}/{toolName}`. Send either the **raw output object**
+(the `draftReport` value from the ingest example) or the **full ingest envelope**, with
+`Content-Type: application/json` (a vendor `application/*+json` type also works).
+A body with a top-level `draftReport`, `manifestName`, or `toolName` property is treated
+as an envelope: it is validated against the ingest request schema, its `manifestName`
+and `toolName` must match the loaded manifest and selected tool, and its `draftReport`
+is then validated as the output (error paths are prefixed with `/draftReport`).
+A map keyed by output name is not accepted.
 
 For example, from the sandbox directory in PowerShell:
 
@@ -51,11 +60,17 @@ $payload = $example.draftReport | ConvertTo-Json -Depth 30
 Invoke-RestMethod -Method Post -Uri '<displayed callback URL>' -ContentType 'application/json' -Body $payload
 ```
 
+To send the full envelope instead, use `$payload = $example | ConvertTo-Json -Depth 30`
+after setting `$example.manifestName` and `$example.toolName` to the loaded manifest's
+`name` and the selected tool's `name`.
+
 The body is validated against **every** manifest output declaration, resolved by
 content type and exact `schemaVersion`. The draft report schema version `1.0`
 is supported; unregistered types or versions fail validation rather than falling
 back. Valid bodies return 200; schema-invalid bodies return 422. Malformed JSON,
-unsupported media, and bodies over 1 MB complete the run as failures (400/415/413).
+unsupported media or content encoding, and bodies over 1 MB complete the run as failures (400/415/413).
+At most 100 schema errors are listed per run; for bodies with more than 2,000 JSON
+values, only the first error per schema is listed, which bounds validation time.
 Results and raw payloads are held in memory, not logged by the callback route.
 
 Only one run is active. The first matching request consumes it, including invalid
@@ -285,6 +300,11 @@ call is made — and the returned payload is checked against the tool's output s
 come back in the response body, as `inputValidation` and `validation`. The `/api/validate/*` routes
 below expose the same checks individually, for validating a payload without executing anything.
 
+Malformed request bodies are rejected before any of this: invalid JSON returns `400`, an
+oversized body `413`, and `inputs` that is not an object of string values — or that uses a
+reserved name segment (`__proto__`, `prototype`, `constructor`) — returns `400`. Server errors
+return a generic `500` and are logged without the request body.
+
 ### Validation
 
 | Method | Path                              | Description                                                        |
@@ -434,13 +454,13 @@ In the **Setup** tab, open **Authentication → Configure**:
 
 | Field | Description |
 |-------|-------------|
-| **Authenticate calls** | Toggle service-to-service auth on/off. Off = unauthenticated calls (for local testing). |
+| **Authenticate calls** | Toggle service-to-service auth on/off. Off = unauthenticated calls (for local testing). The toggle is saved as soon as you flip it; if the save fails, it switches back and the error is shown. |
 | **Tenant ID** | The Entra tenant that issues the token (your partner tenant). |
 | **Client ID** | The calling app's client id (defaults to the Dragon Copilot Extension Runtime client id). |
 | **Client Secret** | Stored **in memory on the server only**; never returned to the UI or logged. |
 | **Application ID URI / Scope** | Your extension's Application ID URI. A bare URI is fine — `/.default` is appended automatically. |
 
-Click **Save**, then **Test connection** to acquire a token without calling the extension. The result shows the token expiry and a claims-validation summary.
+Click **Save**, then **Test connection** to acquire a token without calling the extension. **Test connection** saves first and does not run if the save fails; save errors are shown under the toggle. The result shows the token expiry and a claims-validation summary.
 
 ### How it works
 
@@ -462,6 +482,7 @@ Click **Save**, then **Test connection** to acquire a token without calling the 
 
 - The client secret is held **in server memory only** — it is never persisted to disk, returned by `GET /api/auth/config`, or written to logs.
 - Auth can be toggled off at any time to test unauthenticated endpoints.
+- Tokens are only sent to `https://` endpoints, or to `http://` endpoints on `localhost`, `127.0.0.1` or `[::1]`. When auth is enabled (or a token is supplied) and the tool's endpoint is plain HTTP on any other host, `/api/manifest/execute` returns `400` without calling it.
 - See [Microsoft Entra JWT claims validation](https://learn.microsoft.com/en-us/entra/identity-platform/claims-validation) for details on validating tokens in your extension.
 
 ### Offline end-to-end testing (no Azure)

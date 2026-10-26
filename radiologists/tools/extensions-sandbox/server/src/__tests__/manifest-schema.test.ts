@@ -75,3 +75,41 @@ describe('validateManifestDocument value limit', () => {
     expect(result.errors[0].message).toContain('exceeds');
   });
 });
+
+describe('validateManifestDocument tool name uniqueness', () => {
+  const mixedText = readFileSync(resolve(fixturesDir, 'valid-manifest-mixed-tool-types.json'), 'utf-8');
+
+  it('accepts distinct tool names across capabilities', () => {
+    expect(validateManifestDocument(JSON.parse(mixedText), mixedText).valid).toBe(true);
+  });
+
+  it('rejects a tool name reused in another capability, pointing at the repeat', () => {
+    const manifest = JSON.parse(mixedText);
+    manifest.tools[1].name = manifest.tools[0].name;
+    const text = yaml.dump(manifest);
+
+    const result = validateManifestDocument(manifest, text);
+
+    expect(result.valid).toBe(false);
+    if (result.valid) return;
+    expect(result.errors).toEqual([expect.objectContaining({
+      path: '/tools/1/name',
+      message: `/tools/1/name: tool name '${manifest.tools[0].name}' is used more than once`,
+      severity: 'error',
+    })]);
+    const nameLines = text.split('\n').flatMap((line, index) => (line.includes(`name: ${manifest.tools[0].name}`) ? [index + 1] : []));
+    expect(result.errors[0].line).toBe(nameLines[1]);
+  });
+
+  it('reports a repeated name alongside schema errors', () => {
+    const manifest = JSON.parse(mixedText);
+    manifest.tools[1].name = manifest.tools[0].name;
+    manifest.version = 'not-a-version';
+
+    const result = validateManifestDocument(manifest, JSON.stringify(manifest));
+
+    expect(result.valid).toBe(false);
+    if (result.valid) return;
+    expect(result.errors.map((error) => error.path)).toEqual(expect.arrayContaining(['/version', '/tools/1/name']));
+  });
+});

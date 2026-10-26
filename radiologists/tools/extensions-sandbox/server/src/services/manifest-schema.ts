@@ -5,6 +5,7 @@ import type { ExtensionManifest } from '../schemas/manifest.schema.js';
 import { buildDetailedErrors } from '../utils/validation-hints.js';
 import { mapPathsToLines } from '../utils/source-mapper.js';
 import { MANIFEST_SCHEMA_PATH } from '../utils/schema-path.js';
+import { exceedsValueLimit } from '../utils/value-limit.js';
 
 /**
  * Single compiled validator for the Dragon Copilot (radiologists) manifest schema,
@@ -27,25 +28,6 @@ export type DetailedValidationError = ReturnType<typeof buildDetailedErrors>[num
  * do not bound that walk. Real manifests contain well under a hundred values.
  */
 export const MAX_MANIFEST_VALUES = 10_000;
-
-/** Counts values reachable from `root`, stopping as soon as `limit` is exceeded. */
-function exceedsValueLimit(root: unknown, limit: number): boolean {
-  const pending: unknown[] = [root];
-  let count = 1;
-  while (pending.length > 0) {
-    const value = pending.pop();
-    if (value === null || typeof value !== 'object') {
-      continue;
-    }
-    for (const child of Object.values(value)) {
-      if (++count > limit) {
-        return true;
-      }
-      pending.push(child);
-    }
-  }
-  return false;
-}
 
 export type ManifestValidationResult =
   | { valid: true; manifest: ExtensionManifest }
@@ -83,7 +65,8 @@ export function validateManifestDocument(parsed: unknown, sourceText: string): M
     };
   }
 
-  if (validateSchema(parsed)) {
+  const duplicates = findDuplicateToolNames(parsed);
+  if (validateSchema(parsed) && duplicates.length === 0) {
     return { valid: true, manifest: parsed as ExtensionManifest };
   }
 
@@ -106,9 +89,48 @@ export function validateManifestDocument(parsed: unknown, sourceText: string): M
     return base;
   });
 
-  const lineMap = mapPathsToLines(sourceText, targetPaths);
+  const lineMap = mapPathsToLines(sourceText, [...targetPaths, ...duplicates.map(({ path }) => path)]);
 
-  return { valid: false, errors: buildDetailedErrors(rawErrors, lineMap, targetPaths) };
+  return {
+    valid: false,
+    errors: [
+      ...buildDetailedErrors(rawErrors, lineMap, targetPaths),
+      ...duplicates.map(({ path, name }) => ({
+        path,
+        line: lineMap.get(path) ?? null,
+        message: `${path}: tool name '${name}' is used more than once`,
+        detail: `Tool name '${name}' is used more than once. Each tool needs a unique name, across all capabilities.`,
+        hint: 'Rename one of the tools. Tools are identified by name, so a repeated name is ambiguous.',
+        severity: 'error' as const,
+      })),
+    ],
+  };
+}
+
+/**
+ * Tool names must be unique across all capabilities, which JSON Schema cannot
+ * express. The CLI and the manifest wizard enforce the same rule; without it,
+ * lookups by name can pick a different tool than the one being executed.
+ * Returns each repeated name after its first use, with its `/tools/N/name` path.
+ */
+function findDuplicateToolNames(parsed: unknown): { path: string; name: string }[] {
+  const tools = (parsed as { tools?: unknown } | null)?.tools;
+  if (!Array.isArray(tools)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const duplicates: { path: string; name: string }[] = [];
+  tools.forEach((tool: unknown, index) => {
+    const name = (tool as { name?: unknown } | null)?.name;
+    if (typeof name !== 'string') {
+      return;
+    }
+    if (seen.has(name)) {
+      duplicates.push({ path: `/tools/${index}/name`, name });
+    }
+    seen.add(name);
+  });
+  return duplicates;
 }
 
 /**

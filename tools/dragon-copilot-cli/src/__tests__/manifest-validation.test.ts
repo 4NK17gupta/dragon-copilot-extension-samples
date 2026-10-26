@@ -5,6 +5,7 @@ import {
   validateDcrExtensionManifest,
   type SchemaError,
 } from '../shared/schema-validator.js';
+import { validateExtensionManifest as validateRadiologistsManifest } from '../domains/radiologists/shared/schema-validator.js';
 import type { DragonExtensionManifest } from '../domains/physician/types.js';
 import type { ConnectorIntegrationManifest } from '../domains/connector/types.js';
 import type { DcrExtensionManifest } from '../domains/radiologists/types.js';
@@ -673,6 +674,32 @@ describe('validateDcrExtensionManifest (radiologists)', () => {
 
       expect(result.isValid).toBe(false);
       expect(result.errors.some((e: SchemaError) => e.instancePath?.includes('capability'))).toBe(true);
+    });
+
+    it.each([
+      ['partnerInitiated', 'application/vnd.ms-dragon.rad.quality-check-result+json', 'application/vnd.ms-dragon.rad.draft-report+json'],
+      ['contractBased', 'application/vnd.ms-dragon.rad.draft-report+json', 'application/vnd.ms-dragon.rad.quality-check-result+json'],
+    ] as const)('rejects a %s tool whose output content-type does not match its capability', (toolType, wrongType, expectedType) => {
+      const manifest = toolType === 'partnerInitiated' ? buildPartnerInitiatedManifest() : buildValidRadiologistsManifest();
+      manifest.tools[0].outputs[0]['content-type'] = wrongType;
+
+      const result = validateDcrExtensionManifest(manifest);
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          instancePath: '/tools/0/outputs/0/content-type',
+          keyword: 'const',
+          params: { allowedValue: expectedType },
+        }),
+      ]));
+      // The radiologists validate/package/generate commands report this message.
+      expect(validateRadiologistsManifest(manifest).errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          instancePath: '/tools/0/outputs/0/content-type',
+          message: `must be "${expectedType}" for this tool's capability`,
+        }),
+      ]));
     });
   });
 });

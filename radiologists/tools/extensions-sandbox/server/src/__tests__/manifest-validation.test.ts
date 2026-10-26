@@ -66,13 +66,6 @@ describe('Manifest Schema Validation', () => {
     expect(validate(manifest)).toBe(false);
   });
 
-  it('accepts declared output types independently of toolType, as the manifest contract allows', () => {
-    const manifest = buildPartnerInitiatedManifest();
-    manifest.tools[0].outputs[0]['content-type'] = 'application/vnd.ms-dragon.rad.quality-check-result+json';
-    expect(validate(manifest)).toBe(true);
-    expect(validate.errors).toBeNull();
-  });
-
   it('rejects draft report generation capability for contractBased tools', () => {
     const manifest = buildPartnerInitiatedManifest();
     manifest.tools[0] = { ...validManifestSimple.tools[0], ...manifest.tools[0], toolType: 'contractBased' };
@@ -340,6 +333,30 @@ describe('Manifest Schema Validation', () => {
         .filter((e) => e.keyword === 'required')
         .map((e) => (e.params as { missingProperty: string }).missingProperty);
       expect(missingProperties).toEqual([missing]);
+    });
+
+    it.each([
+      ['qualityCheck', 'application/vnd.ms-dragon.rad.quality-check-result+json'],
+      ['preDraftReportGeneration', 'application/vnd.ms-dragon.rad.draft-report+json'],
+    ])('requires %s outputs to use %s', (capability, expected) => {
+      const manifest = capability === 'qualityCheck'
+        ? structuredClone(validManifestSimple)
+        : buildPartnerInitiatedManifest();
+      const wrong = capability === 'qualityCheck'
+        ? 'application/vnd.ms-dragon.rad.draft-report+json'
+        : 'application/vnd.ms-dragon.rad.quality-check-result+json';
+      manifest.tools[0].outputs[0]['content-type'] = wrong;
+
+      expect(validate(manifest)).toBe(false);
+      expect(validate.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            instancePath: '/tools/0/outputs/0/content-type',
+            keyword: 'const',
+            params: { allowedValue: expected },
+          }),
+        ]),
+      );
     });
   });
 

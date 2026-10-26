@@ -19,6 +19,7 @@ export interface PartnerRun {
 interface ActivePartnerRun {
   public: PartnerRun;
   tenantId: string;
+  manifestName: string;
   tool: ManifestTool;
   claimed: boolean;
 }
@@ -35,6 +36,7 @@ export class PartnerRunStore {
         callbackPath: `/api/partnerInitiated/${encodeURIComponent(manifest.auth.tenantId)}/${encodeURIComponent(tool.name)}`,
       },
       tenantId: manifest.auth.tenantId,
+      manifestName: manifest.name,
       tool: structuredClone(tool),
       claimed: false,
     };
@@ -45,11 +47,11 @@ export class PartnerRunStore {
     return this.run?.public.runId === runId ? this.run.public : null;
   }
 
-  claim(tenantId: string, toolName: string): { runId: string; tool: ManifestTool } | number {
+  claim(tenantId: string, toolName: string): { runId: string; tool: ManifestTool; manifestName: string } | number {
     if (!this.run || this.run.tenantId !== tenantId || this.run.tool.name !== toolName) return 404;
     if (this.run.claimed || this.run.public.status !== 'waiting') return 409;
     this.run.claimed = true;
-    return { runId: this.run.public.runId, tool: this.run.tool };
+    return { runId: this.run.public.runId, tool: this.run.tool, manifestName: this.run.manifestName };
   }
 
   complete(runId: string, result: PartnerRunResult): boolean {

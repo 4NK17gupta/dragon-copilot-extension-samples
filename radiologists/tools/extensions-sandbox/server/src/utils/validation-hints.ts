@@ -95,6 +95,12 @@ function getHintForError(err: ErrorObject): { detail: string; hint: string } {
           hint: `Each toolType supports exactly one capability: "contractBased" → "qualityCheck", "partnerInitiated" → "preDraftReportGeneration".`,
         };
       }
+      if (path.includes('/outputs/') && path.endsWith('/content-type')) {
+        return {
+          detail: `Output content-type at '${path}' does not match the tool's capability (expected "${allowed}").`,
+          hint: `Each capability produces one output type: "qualityCheck" → "application/vnd.ms-dragon.rad.quality-check-result+json", "preDraftReportGeneration" → "application/vnd.ms-dragon.rad.draft-report+json".`,
+        };
+      }
       return {
         detail: `The value at '${path}' must be "${allowed}".`,
         hint: `Set the value at '${path}' to "${allowed}".`,
@@ -118,8 +124,8 @@ function getHintForError(err: ErrorObject): { detail: string; hint: string } {
 
     case 'if': {
       return {
-        detail: `The tool at '${path}' does not satisfy the rules for its toolType.`,
-        hint: `See the related errors for this tool: "contractBased" tools require 'endpoint' and 'inputs' with capability "qualityCheck"; "partnerInitiated" tools forbid 'endpoint' and 'inputs' and use capability "preDraftReportGeneration".`,
+        detail: `The tool at '${path}' does not satisfy the rules for its toolType or capability.`,
+        hint: `See the related errors for this tool: "contractBased" tools require 'endpoint' and 'inputs' with capability "qualityCheck"; "partnerInitiated" tools forbid 'endpoint' and 'inputs' and use capability "preDraftReportGeneration"; outputs must use the capability's content-type.`,
       };
     }
 

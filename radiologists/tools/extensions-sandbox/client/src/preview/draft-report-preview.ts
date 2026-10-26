@@ -13,6 +13,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+const ENVELOPE_KEYS = ['draftReport', 'manifestName', 'toolName'];
+
+/** Mirrors the server: a body with any ingest-envelope key is an envelope, and its draftReport is the output. */
+function unwrapDraftReport(body: unknown): unknown {
+  if (!isRecord(body)) return body;
+  const isEnvelope = ENVELOPE_KEYS.some((key) => Object.prototype.hasOwnProperty.call(body, key));
+  return isEnvelope ? body.draftReport : body;
+}
+
 function isDraftSection(value: unknown): value is DraftSection {
   return isRecord(value)
     && typeof value.name === 'string' && /^[a-z][a-z_]*$/.test(value.name)
@@ -42,7 +51,7 @@ export function buildDraftReportPreview(result: unknown): DraftReportPreview | n
     };
   }
 
-  const body = result.rawBody;
+  const body = unwrapDraftReport(result.rawBody);
   const content = isRecord(body) ? body.reportContent : undefined;
   const report = isRecord(content) ? content.structuredReport : undefined;
   if (!isRecord(content) || content.format !== 'structured_report'

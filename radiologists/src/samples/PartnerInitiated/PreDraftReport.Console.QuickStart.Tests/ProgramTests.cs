@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Identity.Client;
@@ -133,6 +134,38 @@ public sealed class ProgramTests : IDisposable
     }
 
     [Fact]
+    public async Task APayloadMissingTheSectionsFailsInsteadOfSendingAnEmptyList()
+    {
+        var payload = await BundledPayloadAsync();
+        payload["draftReport"]!["reportContent"]!["structuredReport"]!.AsObject().Remove("sections");
+
+        var exitCode = await RunAsync(ShippedSettings(), WritePayload(payload.ToJsonString()));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Payload is not a valid draft report ingest request", Output, StringComparison.Ordinal);
+        Assert.Contains("'sections'", Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Submitting", Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task APayloadWithAMisspelledPropertyFailsInsteadOfDroppingIt()
+    {
+        var payload = await BundledPayloadAsync();
+        var draftReport = payload["draftReport"]!.AsObject();
+        var qualityMetrics = draftReport["qualityMetrics"];
+        draftReport.Remove("qualityMetrics");
+        draftReport["qualityMetric"] = qualityMetrics;
+
+        var exitCode = await RunAsync(ShippedSettings(), WritePayload(payload.ToJsonString()));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Payload is not a valid draft report ingest request", Output, StringComparison.Ordinal);
+        Assert.Contains("'qualityMetric'", Output, StringComparison.Ordinal);
+        Assert.Contains("$.draftReport.qualityMetric", Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Submitting", Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task APayloadWithoutADraftReportIsSubmittedAndRejectedByTheEndpoint()
     {
         var payload = await BundledPayloadAsync();
@@ -142,7 +175,58 @@ public sealed class ProgramTests : IDisposable
 
         Assert.Equal(1, exitCode);
         Assert.Contains("400 BadRequest", Output, StringComparison.Ordinal);
-        Assert.Contains("The DraftReport field is required.", Output, StringComparison.Ordinal);
+        Assert.Contains("  DraftReport: The DraftReport field is required.", Output, StringComparison.Ordinal);
+        Assert.Contains("  traceId: ", Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheOutputLeavesOutTheAccessionNumbersAndTheIdentifier()
+    {
+        var settings = ShippedSettings();
+        var payload = await BundledPayloadAsync();
+        var accessionNumber = payload["draftReport"]!["imagingStudy"]!["accessionNumber"]!.GetValue<string>();
+        var identifier = payload["draftReport"]!["identifier"]!.GetValue<string>();
+
+        await RunAsync(settings, BundledPayload);
+        var exitCode = await RunAsync(settings, BundledPayload);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Orders:          1", Output, StringComparison.Ordinal);
+        Assert.Contains("200 OK", Output, StringComparison.Ordinal);
+        Assert.Contains("409 Conflict, reason ResultAlreadyStored", Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(accessionNumber, Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(identifier, Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnErrorResponseIsReportedByItsFieldsRatherThanItsBody()
+    {
+        var bundled = await File.ReadAllTextAsync(BundledPayload);
+        var payload = WritePayload(bundled.Replace("ACC-0000001", "ACC-DOES-NOT-EXIST", StringComparison.Ordinal));
+
+        var exitCode = await RunAsync(ShippedSettings(), payload);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("  Resource not found.", Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("ACC-DOES-NOT-EXIST", Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"message\"", Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnErrorResponseThatIsNotJsonIsNotPrinted()
+    {
+        var exitCode = await RunWithHandlerAsync(
+            ShippedSettings(),
+            _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent("Accession ACC-0000001 failed"),
+            }),
+            CancellationToken.None);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("500 InternalServerError", Output, StringComparison.Ordinal);
+        Assert.Contains("The response body isn't JSON, so it isn't shown.", Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("ACC-0000001", Output, StringComparison.Ordinal);
     }
 
     [Fact]

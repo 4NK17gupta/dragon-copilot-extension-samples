@@ -476,7 +476,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
               {partnerTest.callbackUrl && (
                 <div id={listenerDescriptionId}>
                   <p>Waiting for a POST request on <code>{partnerTest.callbackUrl}</code></p>
-                  <p>Send the raw output payload as JSON, without an ingest envelope.</p>
+                  <p>Send the raw draft report or the full ingest envelope as JSON.</p>
                 </div>
               )}
             </DialogContent>

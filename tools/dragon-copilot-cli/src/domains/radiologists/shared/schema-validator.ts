@@ -187,6 +187,9 @@ function describeAjvError(ajvError: any): string {
   if (ajvError.keyword === 'false schema') {
     return 'is not allowed for this toolType';
   }
+  if (ajvError.keyword === 'const' && /\/outputs\/\d+\/content-type$/.test(ajvError.instancePath ?? '')) {
+    return `must be "${ajvError.params?.allowedValue}" for this tool's capability`;
+  }
   return ajvError.message || '';
 }
 

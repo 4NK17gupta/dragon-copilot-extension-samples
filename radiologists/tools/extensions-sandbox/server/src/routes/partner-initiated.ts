@@ -44,7 +44,9 @@ partnerInitiatedRunRouter.delete('/:runId', (req, res) => {
   res.sendStatus(204);
 });
 
-const parseJson = json({ type: ['application/json', 'application/*+json'], strict: false, limit: '1mb' });
+// inflate: false rejects compressed bodies (415) instead of decompressing them; see
+// middleware/json-body.ts (GHSA-27r3-jxmh-p828).
+const parseJson = json({ type: ['application/json', 'application/*+json'], strict: false, limit: '1mb', inflate: false });
 
 // Mount before the global JSON parser: parse failures belong to this run and must
 // never reach the global error logger, which could print the clinical body.
@@ -99,7 +101,7 @@ partnerInitiatedCallbackRouter.post('/:tenantId/:toolName', (req, res) => {
       }
     }
     const rawBody: unknown = req.body ?? null;
-    const validation = validatePartnerOutput(claim.tool, rawBody);
+    const validation = validatePartnerOutput(claim, rawBody);
     complete(validation.valid ? 200 : 422, rawBody, validation);
   });
 });
