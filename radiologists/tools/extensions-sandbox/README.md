@@ -360,7 +360,10 @@ Runtime — so that a manifest which works here works when deployed.
 2. **Validate against the contract.** The manifest is checked against the JSON Schema owned by
    `tools/dragon-copilot-cli` — the same schema the CLI enforces — so the sandbox cannot accept a
    manifest the platform would reject. Errors are mapped back to line/column positions in the
-   original text for display in the editor.
+   original text for display in the editor. To bound the work per request, a manifest with more
+   than 10,000 values (for example from expanded YAML aliases) is rejected without validation; above
+   2,000 values only the first schema error is listed; at most 100 errors are listed per run; and
+   line numbers are shown only for sources of up to 50,000 characters and 2,000 lines.
 3. **Parse capabilities and tools.** Tools are grouped by their `capability` field to drive the UI,
    exposing which tools exist and what inputs each declares.
 4. **Parse and validate inputs.** Form values arrive as flat dot-delimited paths
