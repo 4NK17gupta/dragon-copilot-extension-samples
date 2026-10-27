@@ -1,8 +1,23 @@
 import { randomUUID } from 'node:crypto';
 import type { ManifestTool } from '../schemas/manifest.schema.js';
 import { createLogger } from '../utils/logger.js';
+import { isLoopbackHostname } from '../utils/loopback.js';
 
 const log = createLogger('extension-call');
+
+/**
+ * Returns true when a bearer token may be sent to `endpoint`: over HTTPS, or
+ * over plain HTTP only to this machine, where it never crosses the network.
+ */
+export function canSendBearerToken(endpoint: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  return url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHostname(url.hostname));
+}
 
 /**
  * Session context for request correlation and tracking.
@@ -133,6 +148,9 @@ export async function callExtensionAsync(
 
   if (!tool.endpoint) {
     throw new Error('Tool endpoint is not configured.');
+  }
+  if (bearerToken && !canSendBearerToken(tool.endpoint)) {
+    throw new Error('Refusing to send a bearer token over plain HTTP to an endpoint that is not localhost.');
   }
 
   const processRequest = buildProcessRequest(tool, parsedInputs, {

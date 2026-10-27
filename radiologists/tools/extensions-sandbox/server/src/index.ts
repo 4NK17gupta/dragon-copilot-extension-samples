@@ -6,6 +6,10 @@ import { validateRouter } from './routes/validate.js';
 import { authRouter } from './routes/auth.js';
 import { cliRouter } from './routes/cli.js';
 import { createLogger } from './utils/logger.js';
+import { partnerInitiatedCallbackRouter } from './routes/partner-initiated.js';
+import { localRequestGuard } from './middleware/local-request-guard.js';
+import { globalErrorHandler } from './middleware/error-handler.js';
+import { jsonBodyParser } from './middleware/json-body.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -14,12 +18,13 @@ const httpLog = createLogger('http');
 const serverLog = createLogger('server');
 
 app.use(cors({ origin: 'http://localhost:3000' }));
-app.use(express.json());
 
 // Request logging middleware: logs each incoming request and its response
 // status + duration so activity is visible in the console during `npm run dev`.
 // We log `req.path` (not `req.originalUrl`) so query-string values — which in a
 // healthcare context could carry sensitive/PHI-shaped data — never reach logs.
+// Registered before every router, so partner-initiated callbacks are logged too
+// (path and status only; never the clinical body).
 app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
   const start = Date.now();
   httpLog.info(`--> ${req.method} ${req.path}`);
@@ -30,22 +35,24 @@ app.use((req: express.Request, res: express.Response, next: express.NextFunction
   next();
 });
 
+// Reject DNS-rebinding and cross-site requests before any router runs.
+app.use(localRequestGuard);
+
+app.use('/api/partnerInitiated', partnerInitiatedCallbackRouter);
+app.use(jsonBodyParser);
+
 app.use('/api/health', healthRouter);
 app.use('/api/manifest', manifestRouter);
 app.use('/api/validate', validateRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/cli', cliRouter);
 
-const ROUTES = ['/api/health', '/api/manifest', '/api/validate', '/api/auth', '/api/cli'];
+const ROUTES = ['/api/health', '/api/manifest', '/api/partnerInitiated', '/api/validate', '/api/auth', '/api/cli'];
 
 // Handle multer-specific errors with user-friendly messages
 app.use('/api/manifest', multerErrorHandler);
 
-// Global error handler
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  serverLog.error('Unhandled error while processing request:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
+app.use(globalErrorHandler);
 
 app.listen(PORT, '127.0.0.1', () => {
   serverLog.info(`listening on http://localhost:${PORT}`);

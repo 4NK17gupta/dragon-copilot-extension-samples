@@ -7,5 +7,8 @@ dist/
 server/src/schemas/radiologists/radiologists-extension-manifest-schema.json
 server/src/schemas/radiologists/radiologists-extensibility-api.yaml
 
+# partnerInitiated payload schemas, synced from radiologists/partner-initiated.
+server/src/schemas/radiologists/partner-initiated/
+
 # The CLI's pure manifest core, synced from tools/dragon-copilot-cli to power /api/cli/generate.
 server/src/cli/radiologists/

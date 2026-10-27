@@ -10,14 +10,20 @@ import type { Capability, ManifestChoice, ToolType } from './types.js';
 export const REPORT_CONTENT_TYPE = 'application/vnd.ms-dragon.rad.report+json';
 export const PATIENT_INFORMATION_CONTENT_TYPE = 'application/vnd.ms-dragon.rad.patient-information+json';
 
-/** The only output media type the radiologists manifest schema allows today. */
+/** Default output media type, produced by `contractBased` `qualityCheck` tools. */
 export const DEFAULT_OUTPUT_CONTENT_TYPE = 'application/vnd.ms-dragon.rad.quality-check-result+json';
+
+/** Output media type produced by `partnerInitiated` `preDraftReportGeneration` tools. */
+export const DRAFT_REPORT_CONTENT_TYPE = 'application/vnd.ms-dragon.rad.draft-report+json';
 
 /** Payload schema version (major.minor) applied to generated inputs and outputs. */
 export const DEFAULT_PAYLOAD_SCHEMA_VERSION = '1.0';
 
 export const DEFAULT_TOOL_TYPE: ToolType = 'contractBased';
 export const DEFAULT_CAPABILITY: Capability = 'qualityCheck';
+
+export const PARTNER_INITIATED_TOOL_TYPE: ToolType = 'partnerInitiated';
+export const PRE_DRAFT_REPORT_GENERATION_CAPABILITY: Capability = 'preDraftReportGeneration';
 
 export const INPUT_TYPE_CHOICES: ManifestChoice[] = [
   { name: 'Radiology Report', value: REPORT_CONTENT_TYPE },
@@ -26,15 +32,27 @@ export const INPUT_TYPE_CHOICES: ManifestChoice[] = [
 
 export const OUTPUT_TYPE_CHOICES: ManifestChoice[] = [
   { name: 'Report Optimization Result', value: DEFAULT_OUTPUT_CONTENT_TYPE },
+  { name: 'Draft Report', value: DRAFT_REPORT_CONTENT_TYPE },
 ];
 
 export const TOOL_TYPE_CHOICES: ManifestChoice<ToolType>[] = [
   { name: 'Contract Based', value: DEFAULT_TOOL_TYPE },
+  { name: 'Partner Initiated', value: PARTNER_INITIATED_TOOL_TYPE },
 ];
 
 export const CAPABILITY_CHOICES: ManifestChoice<Capability>[] = [
   { name: 'Report Optimization', value: DEFAULT_CAPABILITY },
+  { name: 'Draft Report Generation', value: PRE_DRAFT_REPORT_GENERATION_CAPABILITY },
 ];
+
+/**
+ * The capability each tool type delivers, mirroring the schema's `toolType` ↔
+ * `capability` pairing rule (each capability belongs to exactly one tool type).
+ */
+export const CAPABILITY_BY_TOOL_TYPE: Readonly<Record<ToolType, Capability>> = Object.freeze({
+  contractBased: DEFAULT_CAPABILITY,
+  partnerInitiated: PRE_DRAFT_REPORT_GENERATION_CAPABILITY,
+});
 
 export const BODY_PART_CHOICES: ManifestChoice[] = [
   { name: 'Head', value: 'HEAD' },
@@ -86,6 +104,23 @@ export const MANIFEST_DEFAULTS = {
   outputDescription: 'Report optimization result',
   schemaVersion: DEFAULT_PAYLOAD_SCHEMA_VERSION,
 } as const;
+
+/** Output name/description offered for `partnerInitiated` (draft report) tools; used by the `pre-draft-report` template. */
+export const DRAFT_REPORT_OUTPUT_DEFAULTS = {
+  name: 'preDraftReportResult',
+  description: 'Draft radiology report',
+} as const;
+
+/** Default output name/description per tool type, offered by the CLI and sandbox wizards. */
+export const OUTPUT_DEFAULTS_BY_TOOL_TYPE: Readonly<
+  Record<ToolType, Readonly<{ name: string; description: string }>>
+> = Object.freeze({
+  contractBased: Object.freeze({ name: MANIFEST_DEFAULTS.outputName, description: MANIFEST_DEFAULTS.outputDescription }),
+  partnerInitiated: Object.freeze({
+    name: DRAFT_REPORT_OUTPUT_DEFAULTS.name,
+    description: DRAFT_REPORT_OUTPUT_DEFAULTS.description,
+  }),
+});
 
 /**
  * Describes an input content type in generated manifests.

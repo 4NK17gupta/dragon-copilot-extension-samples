@@ -1,13 +1,20 @@
 /**
  * Sync externally-owned sources into the sandbox.
  *
- * The sandbox validates against two contracts it does not own, and generates
+ * The sandbox validates against contracts it does not own, and generates
  * manifests with code it does not own:
  *
  * - `radiologists-extension-manifest-schema.json` — owned by `tools/dragon-copilot-cli`.
- * - `radiologists-extensibility-api.yaml` — owned by `radiologists/` (the copy the
+ * - `radiologists-extensibility-api.yaml` — owned by `radiologists/extensibility-api/` (the copy the
  *   radiology samples are built against); the response and input schemas under
  *   `src/schemas/generated-schemas/` are derived from it.
+ * - `src/schemas/radiologists/partner-initiated/` — the standalone Draft-07 payload
+ *   schemas for `partnerInitiated` tools (`draft-report-schema.json`,
+ *   `draft-report-ingest-request-schema.json`), owned by `radiologists/partner-initiated/`.
+ *   They are copied as-is, not generated, because they are not part of the OpenAPI spec.
+ * - `src/schemas/radiologists/partner-initiated/samples/` — the example ingest request
+ *   and retrieve response payloads (`PreDraftReportGeneration-*-Example.json`), owned by
+ *   `radiologists/partner-initiated/samples/`. Copied byte-for-byte and used as test fixtures.
  * - `src/cli/radiologists/` — the Dragon Copilot CLI's pure manifest core
  *   (`tools/dragon-copilot-cli/src/domains/radiologists/manifest/`), which backs
  *   the `/api/cli/generate` endpoint so the sandbox wizard and `dragon-copilot
@@ -50,9 +57,9 @@ const SYNC_TARGETS: SyncTarget[] = [
     owner: 'tools/dragon-copilot-cli',
   },
   {
-    // server/scripts -> radiologists/radiologists-extensibility-api.yaml
-    source: resolve(__dirname, '..', '..', '..', '..', 'radiologists-extensibility-api.yaml'),
-    owner: 'radiologists/',
+    // server/scripts -> radiologists/extensibility-api/radiologists-extensibility-api.yaml
+    source: resolve(__dirname, '..', '..', '..', '..', 'extensibility-api', 'radiologists-extensibility-api.yaml'),
+    owner: 'radiologists/extensibility-api',
   },
 ];
 
@@ -63,8 +70,10 @@ interface SyncDirTarget {
   dest: string;
   /** Where the source is owned, used in the error message when it is missing. */
   owner: string;
-  /** Only files with these extensions are copied. */
-  extensions: string[];
+  /** Copy exactly these files; every one must exist upstream. Takes precedence over `extensions`. */
+  files?: string[];
+  /** Otherwise, copy every top-level file with one of these extensions. */
+  extensions?: string[];
 }
 
 const SYNC_DIR_TARGETS: SyncDirTarget[] = [
@@ -75,7 +84,29 @@ const SYNC_DIR_TARGETS: SyncDirTarget[] = [
     owner: 'tools/dragon-copilot-cli',
     extensions: ['.ts'],
   },
+  {
+    // Explicit allowlist: the README and any future non-schema JSON stay upstream;
+    // samples/ is synced by the next target.
+    source: resolve(REPO_ROOT, 'radiologists', 'partner-initiated'),
+    // server/scripts -> server/src/schemas/radiologists/partner-initiated
+    dest: resolve(DEST_DIR, 'partner-initiated'),
+    owner: 'radiologists',
+    files: ['draft-report-schema.json', 'draft-report-ingest-request-schema.json'],
+  },
+  {
+    // Must stay after the partner-initiated target above, which recreates the parent directory.
+    source: resolve(REPO_ROOT, 'radiologists', 'partner-initiated', 'samples'),
+    // server/scripts -> server/src/schemas/radiologists/partner-initiated/samples
+    dest: resolve(DEST_DIR, 'partner-initiated', 'samples'),
+    owner: 'radiologists',
+    files: [
+      'PreDraftReportGeneration-Ingest-Request-Example.json',
+      'PreDraftReportGeneration-Retrieve-Response-Example.json',
+    ],
+  },
 ];
+
+let syncedFileCount = 0;
 
 mkdirSync(DEST_DIR, { recursive: true });
 
@@ -92,25 +123,38 @@ for (const { source, owner } of SYNC_TARGETS) {
 
   const dest = join(DEST_DIR, fileName);
   copyFileSync(source, dest);
+  syncedFileCount += 1;
   console.log(`[sync-schemas] Synced ${fileName} from ${owner} -> ${dest}`);
 }
 
-for (const { source, dest, owner, extensions } of SYNC_DIR_TARGETS) {
+for (const { source, dest, owner, files: allowlist, extensions = [] } of SYNC_DIR_TARGETS) {
   const dirName = basename(source);
 
   if (!existsSync(source)) {
     console.error(
       `[sync-schemas] ${dirName}/ not found at:\n  ${source}\n` +
-        `The sandbox sources this code from ${owner}. Ensure it is present.`,
+        `The sandbox sources these files from ${owner}. Ensure it is present.`,
     );
     process.exit(1);
   }
 
-  const files = readdirSync(source).filter((file) => extensions.some((ext) => file.endsWith(ext)));
-
-  if (files.length === 0) {
-    console.error(`[sync-schemas] ${dirName}/ at ${source} contains no ${extensions.join('/')} files to sync.`);
-    process.exit(1);
+  let files: string[];
+  if (allowlist) {
+    const missing = allowlist.filter((file) => !existsSync(join(source, file)));
+    if (missing.length > 0) {
+      console.error(
+        `[sync-schemas] ${dirName}/ at ${source} is missing: ${missing.join(', ')}.\n` +
+          `The sandbox sources these files from ${owner}. Ensure they are present or update the allowlist.`,
+      );
+      process.exit(1);
+    }
+    files = allowlist;
+  } else {
+    files = readdirSync(source).filter((file) => extensions.some((ext) => file.endsWith(ext)));
+    if (files.length === 0) {
+      console.error(`[sync-schemas] ${dirName}/ at ${source} contains no ${extensions.join('/')} files to sync.`);
+      process.exit(1);
+    }
   }
 
   // Recreated from scratch so a file deleted upstream cannot linger here and
@@ -121,6 +165,9 @@ for (const { source, dest, owner, extensions } of SYNC_DIR_TARGETS) {
   for (const file of files) {
     copyFileSync(join(source, file), join(dest, file));
   }
+  syncedFileCount += files.length;
 
   console.log(`[sync-schemas] Synced ${files.length} file(s) from ${owner}/${dirName} -> ${dest}`);
 }
+
+console.log(`[sync-schemas] Synced ${syncedFileCount} file(s) in total.`);

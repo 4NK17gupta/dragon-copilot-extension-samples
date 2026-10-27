@@ -41,6 +41,21 @@ const cardResult = {
 };
 
 describe('DragonCopilotPreview', () => {
+  it('switches between isolated partner-initiated and contract-based previews', () => {
+    const { rerender } = render(
+      <DragonCopilotPreview toolType="contractBased" result={recommendationResult} />,
+    );
+    expect(screen.getByRole('heading', { name: 'Report optimization (1)' })).toBeInTheDocument();
+
+    rerender(<DragonCopilotPreview toolType="partnerInitiated" result={recommendationResult} />);
+    expect(screen.getByRole('status')).toHaveTextContent('has not passed validation');
+    expect(screen.queryByRole('heading', { name: 'Report optimization (1)' })).toBeNull();
+
+    rerender(<DragonCopilotPreview toolType="contractBased" result={recommendationResult} />);
+    expect(screen.getByRole('heading', { name: 'Report optimization (1)' })).toBeInTheDocument();
+    expect(screen.queryByText(/has not passed validation/)).toBeNull();
+  });
+
   it('shows the Report optimization card in its not-run state before a tool has run', () => {
     render(<DragonCopilotPreview result={null} toolName="sampleQualityCheckTool" />);
 

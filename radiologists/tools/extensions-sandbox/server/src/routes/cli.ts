@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import {
   BODY_PART_CHOICES,
+  CAPABILITY_BY_TOOL_TYPE,
   CAPABILITY_CHOICES,
   DEFAULT_OUTPUT_CONTENT_TYPE,
   INPUT_TYPE_CHOICES,
   MANIFEST_DEFAULTS,
   MODALITY_CHOICES,
+  OUTPUT_DEFAULTS_BY_TOOL_TYPE,
   OUTPUT_TYPE_CHOICES,
   TOOL_TYPE_CHOICES,
   buildManifest,
@@ -72,7 +74,10 @@ interface GenerateRequestBody {
   template?: unknown;
   tenantId?: unknown;
   extension?: ExtensionRequestFields;
-  tool?: ToolRequestFields;
+  /** A single tool; the original request shape, still accepted. */
+  tool?: unknown;
+  /** One or more tools. Mutually exclusive with `tool`. */
+  tools?: unknown;
 }
 
 /** Request-shape problem, reported before any manifest is assembled. */
@@ -93,6 +98,28 @@ function asString(value: unknown, fallback = ''): string {
 
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+const VALID_TOOL_TYPES: ReadonlySet<ToolType> = new Set(TOOL_TYPE_CHOICES.map((choice) => choice.value));
+const VALID_CAPABILITIES: ReadonlySet<Capability> = new Set(CAPABILITY_CHOICES.map((choice) => choice.value));
+
+/**
+ * Reads an optional enumerated field. Blank means "not supplied" (the manifest
+ * core applies its default); anything else must be one of `valid`, so an
+ * unknown value is rejected as a 400 rather than reaching the core unchecked.
+ */
+function readChoice<T extends string>(
+  value: unknown,
+  valid: ReadonlySet<T>,
+  field: string,
+  label: string,
+): T | undefined {
+  const text = asString(value);
+  if (!text) return undefined;
+  if (!(valid as ReadonlySet<string>).has(text)) {
+    throw new BadRequestError(`Unknown ${field} '${text}' for ${label}. Expected one of: ${[...valid].join(', ')}.`);
+  }
+  return text as T;
 }
 
 function requireTenantId(body: GenerateRequestBody): string {
@@ -117,6 +144,8 @@ cliRouter.get('/options', (_req, res) => {
     outputTypes: OUTPUT_TYPE_CHOICES,
     toolTypes: TOOL_TYPE_CHOICES,
     capabilities: CAPABILITY_CHOICES,
+    capabilityByToolType: CAPABILITY_BY_TOOL_TYPE,
+    outputDefaultsByToolType: OUTPUT_DEFAULTS_BY_TOOL_TYPE,
     bodyParts: BODY_PART_CHOICES,
     modalities: MODALITY_CHOICES,
     outputContentType: DEFAULT_OUTPUT_CONTENT_TYPE,
@@ -244,18 +273,79 @@ function buildTemplateManifest(body: GenerateRequestBody): DcrExtensionManifest 
 function buildCustomManifest(body: GenerateRequestBody): DcrExtensionManifest {
   const tenantId = requireTenantId(body);
   const extension = body.extension ?? {};
-  const tool = body.tool;
+  const tools = readToolRequests(body);
 
-  if (!tool || typeof tool !== 'object') {
-    throw new BadRequestError('A tool definition is required. Add at least one tool to the manifest.');
+  // Mirrors the CLI's `validateToolName`; the schema itself cannot express it.
+  const seen = new Set<string>();
+  for (const tool of tools) {
+    const name = asString(tool.name);
+    if (name && seen.has(name)) {
+      throw new BadRequestError(`Tool name '${name}' is used more than once. Each tool needs a unique name.`);
+    }
+    seen.add(name);
   }
 
+  const label = (index: number) => (tools.length === 1 ? 'the tool' : `tool ${index + 1}`);
+
+  return buildManifest({
+    extension: {
+      name: asString(extension.name, MANIFEST_DEFAULTS.extensionName),
+      description: asString(extension.description, MANIFEST_DEFAULTS.extensionDescription),
+      version: asString(extension.version, MANIFEST_DEFAULTS.version),
+      radiologistsExtensibilityApiVersion: asString(
+        extension.radiologistsExtensibilityApiVersion,
+        MANIFEST_DEFAULTS.radiologistsExtensibilityApiVersion,
+      ),
+    },
+    auth: { tenantId },
+    tools: tools.map((tool, index) => readToolInput(tool, label(index))),
+  });
+}
+
+/**
+ * Reads the tool list from either `tools` (an array) or the original single
+ * `tool` field. Supplying both is ambiguous, so it is rejected.
+ */
+function readToolRequests(body: GenerateRequestBody): ToolRequestFields[] {
+  const isObject = (value: unknown): value is ToolRequestFields =>
+    !!value && typeof value === 'object' && !Array.isArray(value);
+  const missing = 'A tool definition is required. Add at least one tool to the manifest.';
+
+  const hasTool = body.tool !== undefined && body.tool !== null;
+  const hasTools = body.tools !== undefined && body.tools !== null;
+
+  if (hasTool && hasTools) {
+    throw new BadRequestError('Provide either "tool" or "tools", not both.');
+  }
+
+  if (hasTools) {
+    if (!Array.isArray(body.tools) || body.tools.length === 0) {
+      throw new BadRequestError(missing);
+    }
+    if (!body.tools.every(isObject)) {
+      throw new BadRequestError('Each tool must be an object with a name, tool type, and outputs.');
+    }
+    return body.tools;
+  }
+
+  if (!isObject(body.tool)) {
+    throw new BadRequestError(missing);
+  }
+  return [body.tool];
+}
+
+/**
+ * Converts one tool from the request into manifest core input. Endpoint and
+ * input types are read regardless of tool type; the core ignores them for
+ * `partnerInitiated` tools.
+ */
+function readToolInput(tool: ToolRequestFields, label: string): ToolInput {
   const outputs = Array.isArray(tool.outputs) ? (tool.outputs as OutputRequestFields[]) : [];
   if (outputs.length === 0) {
-    throw new BadRequestError('At least one output is required for the tool.');
+    throw new BadRequestError(`At least one output is required for ${label}.`);
   }
   if (outputs.some((output) => !output || typeof output !== 'object')) {
-    throw new BadRequestError('Each output must be an object with a name and description.');
+    throw new BadRequestError(`Each output must be an object with a name and description (${label}).`);
   }
 
   const toolInput: ToolInput = {
@@ -270,14 +360,14 @@ function buildCustomManifest(body: GenerateRequestBody): DcrExtensionManifest {
     })),
   };
 
-  const toolType = asString(tool.toolType);
+  const toolType = readChoice(tool.toolType, VALID_TOOL_TYPES, 'toolType', label);
   if (toolType) {
-    toolInput.toolType = toolType as ToolType;
+    toolInput.toolType = toolType;
   }
 
-  const capability = asString(tool.capability);
+  const capability = readChoice(tool.capability, VALID_CAPABILITIES, 'capability', label);
   if (capability) {
-    toolInput.capability = capability as Capability;
+    toolInput.capability = capability;
   }
 
   const criteria = readRelevanceFilteringCriteria(tool);
@@ -285,19 +375,7 @@ function buildCustomManifest(body: GenerateRequestBody): DcrExtensionManifest {
     toolInput.relevanceFilteringCriteria = criteria;
   }
 
-  return buildManifest({
-    extension: {
-      name: asString(extension.name, MANIFEST_DEFAULTS.extensionName),
-      description: asString(extension.description, MANIFEST_DEFAULTS.extensionDescription),
-      version: asString(extension.version, MANIFEST_DEFAULTS.version),
-      radiologistsExtensibilityApiVersion: asString(
-        extension.radiologistsExtensibilityApiVersion,
-        MANIFEST_DEFAULTS.radiologistsExtensibilityApiVersion,
-      ),
-    },
-    auth: { tenantId },
-    tools: [toolInput],
-  });
+  return toolInput;
 }
 
 /**

@@ -18,10 +18,11 @@ import type {
   ToolType,
 } from './types.js';
 import {
-  DEFAULT_CAPABILITY,
+  CAPABILITY_BY_TOOL_TYPE,
   DEFAULT_OUTPUT_CONTENT_TYPE,
   DEFAULT_PAYLOAD_SCHEMA_VERSION,
   DEFAULT_TOOL_TYPE,
+  DRAFT_REPORT_CONTENT_TYPE,
   getInputDescription,
   getInputName,
 } from './choices.js';
@@ -40,18 +41,24 @@ export interface OutputInput {
   description: string;
   /** Defaults to `DEFAULT_PAYLOAD_SCHEMA_VERSION`. */
   schemaVersion?: string | undefined;
-  /** Defaults to `DEFAULT_OUTPUT_CONTENT_TYPE`. */
+  /** Defaults to the tool type's output media type (see `getDefaultOutputContentType`). */
   'content-type'?: string | undefined;
 }
 
 export interface ToolInput {
   name: string;
   description: string;
-  endpoint: string;
-  /** Input media types; names and descriptions are derived from them. */
-  inputTypes: string[];
+  /** Required for `contractBased` tools; ignored for `partnerInitiated` tools. */
+  endpoint?: string | undefined;
+  /**
+   * Input media types; names and descriptions are derived from them.
+   * Required for `contractBased` tools; ignored for `partnerInitiated` tools.
+   */
+  inputTypes?: string[] | undefined;
   outputs: OutputInput[];
+  /** Defaults to `DEFAULT_TOOL_TYPE`. */
   toolType?: ToolType | undefined;
+  /** Defaults to the capability paired with the tool type (see `CAPABILITY_BY_TOOL_TYPE`). */
   capability?: Capability | undefined;
   relevanceFilteringCriteria?: RelevanceFilteringCriteria | null | undefined;
   configurationTemplate?: Record<string, any> | undefined;
@@ -76,13 +83,23 @@ export function buildInputs(contentTypes: string[]): DcrInput[] {
 }
 
 /**
+ * The output media type a tool of the given type produces by default.
+ */
+export function getDefaultOutputContentType(toolType: ToolType = DEFAULT_TOOL_TYPE): string {
+  return toolType === 'partnerInitiated' ? DRAFT_REPORT_CONTENT_TYPE : DEFAULT_OUTPUT_CONTENT_TYPE;
+}
+
+/**
  * Fills in the output content type and schema version defaults.
  */
-export function buildOutputs(outputs: OutputInput[]): DcrOutput[] {
+export function buildOutputs(
+  outputs: OutputInput[],
+  defaultContentType: string = DEFAULT_OUTPUT_CONTENT_TYPE,
+): DcrOutput[] {
   return outputs.map((output) => ({
     name: output.name,
     description: output.description,
-    'content-type': output['content-type'] ?? DEFAULT_OUTPUT_CONTENT_TYPE,
+    'content-type': output['content-type'] ?? defaultContentType,
     schemaVersion: output.schemaVersion ?? DEFAULT_PAYLOAD_SCHEMA_VERSION,
   }));
 }
@@ -110,16 +127,33 @@ export function normalizeRelevanceFilteringCriteria(
 
 /**
  * Assembles a single tool definition.
+ *
+ * `endpoint` and `inputs` are emitted only for `contractBased` tools — the
+ * schema requires them there and `partnerInitiated` tools are never called.
+ * Values are passed through unvalidated (an empty endpoint or input list is
+ * left for schema validation to report), but omitting them entirely for a
+ * `contractBased` tool is a caller bug.
+ *
+ * @throws if a `contractBased` tool has no `endpoint` or `inputTypes`.
  */
 export function buildTool(tool: ToolInput): DcrTool {
+  const toolType = tool.toolType ?? DEFAULT_TOOL_TYPE;
+
+  let callTarget: Pick<DcrTool, 'endpoint' | 'inputs'> = {};
+  if (toolType === 'contractBased') {
+    if (tool.endpoint === undefined || tool.inputTypes === undefined) {
+      throw new Error(`contractBased tool '${tool.name}' requires an endpoint and input types.`);
+    }
+    callTarget = { endpoint: tool.endpoint, inputs: buildInputs(tool.inputTypes) };
+  }
+
   const built: DcrTool = {
     name: tool.name,
-    toolType: tool.toolType ?? DEFAULT_TOOL_TYPE,
-    capability: tool.capability ?? DEFAULT_CAPABILITY,
+    toolType,
+    capability: tool.capability ?? CAPABILITY_BY_TOOL_TYPE[toolType],
     description: tool.description,
-    endpoint: tool.endpoint,
-    inputs: buildInputs(tool.inputTypes),
-    outputs: buildOutputs(tool.outputs),
+    ...callTarget,
+    outputs: buildOutputs(tool.outputs, getDefaultOutputContentType(toolType)),
   };
 
   const criteria = normalizeRelevanceFilteringCriteria(tool.relevanceFilteringCriteria);
