@@ -7,6 +7,8 @@ import { authRouter } from './routes/auth.js';
 import { cliRouter } from './routes/cli.js';
 import { createLogger } from './utils/logger.js';
 import { partnerInitiatedCallbackRouter } from './routes/partner-initiated.js';
+import { draftReportIngestRouter, draftReportResultsRouter } from './routes/draft-report-ai-results.js';
+import { preloadIngestRequestSchemas } from './services/partner-validation.js';
 import { localRequestGuard } from './middleware/local-request-guard.js';
 import { globalErrorHandler } from './middleware/error-handler.js';
 import { jsonBodyParser } from './middleware/json-body.js';
@@ -39,6 +41,8 @@ app.use((req: express.Request, res: express.Response, next: express.NextFunction
 app.use(localRequestGuard);
 
 app.use('/api/partnerInitiated', partnerInitiatedCallbackRouter);
+// Like the callback router, it parses its own body so parse failures shape its response.
+app.use('/api/v1', draftReportIngestRouter);
 app.use(jsonBodyParser);
 
 app.use('/api/health', healthRouter);
@@ -46,13 +50,25 @@ app.use('/api/manifest', manifestRouter);
 app.use('/api/validate', validateRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/cli', cliRouter);
+app.use('/api/draft-report-ai-results', draftReportResultsRouter);
 
-const ROUTES = ['/api/health', '/api/manifest', '/api/partnerInitiated', '/api/validate', '/api/auth', '/api/cli'];
+const ROUTES = [
+  '/api/health', '/api/manifest', '/api/partnerInitiated',
+  '/api/v1/tenants/:tenantId/environments/:environmentId/draft-report-ai-results',
+  '/api/draft-report-ai-results', '/api/validate', '/api/auth', '/api/cli',
+];
 
 // Handle multer-specific errors with user-friendly messages
 app.use('/api/manifest', multerErrorHandler);
 
 app.use(globalErrorHandler);
+
+// Compiled before listening, so no submission waits for it or blocks other requests.
+try {
+  preloadIngestRequestSchemas();
+} catch {
+  serverLog.warn('Draft report ingest schemas could not be loaded; submissions return 500 until the schema sync/build step runs.');
+}
 
 app.listen(PORT, '127.0.0.1', () => {
   serverLog.info(`listening on http://localhost:${PORT}`);
