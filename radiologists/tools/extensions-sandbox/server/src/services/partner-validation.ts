@@ -6,11 +6,16 @@ import type { ValidationCheck, ValidationResult } from './validation.js';
 import { DRAFT_REPORT_INGEST_REQUEST_SCHEMA_PATH, DRAFT_REPORT_SCHEMA_PATH } from '../utils/schema-path.js';
 import { exceedsValueLimit } from '../utils/value-limit.js';
 
+export const DRAFT_REPORT_CONTENT_TYPE = 'application/vnd.ms-dragon.rad.draft-report+json';
+
 const schemaRegistry = new Map([
-  ['application/vnd.ms-dragon.rad.draft-report+json', new Map([
+  [DRAFT_REPORT_CONTENT_TYPE, new Map([
     ['1.0', DRAFT_REPORT_SCHEMA_PATH],
   ])],
 ]);
+
+/** How the ingest request schema refers to the draft report schema in its `draftReport` member. */
+const INGEST_DRAFT_REPORT_REF = 'draft-report-schema.json';
 
 /**
  * Bodies with more values (objects, arrays and scalars) than this get only the
@@ -39,6 +44,7 @@ addFormats(firstErrorAjv);
 addFormats(allErrorsAjv);
 const outputValidators = new Map<string, SchemaValidators>();
 let envelopeValidators: SchemaValidators | undefined;
+let ingestRequestValidators: SchemaValidators | undefined;
 
 function compile(schema: object): SchemaValidators {
   return { firstError: firstErrorAjv.compile(schema), allErrors: allErrorsAjv.compile(schema) };
@@ -48,6 +54,21 @@ function compile(schema: object): SchemaValidators {
 export interface PartnerTarget {
   tool: ManifestTool;
   manifestName: string;
+}
+
+function formatList(items: string[]): string {
+  return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+}
+
+function schemaErrorMessage(error: ErrorObject): string {
+  if (error.keyword === 'dependencies') {
+    // Ajv's default ("must have properties offerId, planId when property publisherId is
+    // present") doesn't say the properties belong together, which is the rule to fix.
+    const params = error.params as { property: string; missingProperty: string; deps: string };
+    const group = [params.property, ...params.deps.split(', ')];
+    return `'${params.property}' requires '${params.missingProperty}': ${formatList(group)} must be supplied together or omitted together.`;
+  }
+  return error.message ?? 'Payload does not match the schema.';
 }
 
 /** Builds the check list for one request and bounds the number of schema errors in it. */
@@ -90,7 +111,7 @@ class CheckCollector {
         check: label,
         passed: false,
         path: `${pathPrefix}${error.instancePath}${property === undefined ? '' : `/${property}`}` || '/',
-        error: error.message ?? 'Payload does not match the schema.',
+        error: schemaErrorMessage(error),
       });
     }
   }
@@ -114,16 +135,58 @@ class CheckCollector {
   }
 }
 
-export function partnerValidationResult(tool: ManifestTool, checks: ValidationCheck[]): ValidationResult {
+export function validationResult(toolName: string, outputContentType: string, checks: ValidationCheck[]): ValidationResult {
   const failed = checks.filter((check) => !check.passed).length;
   return {
     valid: failed === 0,
-    toolName: tool.name,
-    outputContentType: [...new Set(tool.outputs.map((output) => output['content-type']))].join(', ') || 'none',
+    toolName,
+    outputContentType,
     checks,
     summary: { passed: checks.length - failed, failed },
     timestamp: new Date().toISOString(),
   };
+}
+
+export function partnerValidationResult(tool: ManifestTool, checks: ValidationCheck[]): ValidationResult {
+  const contentTypes = [...new Set(tool.outputs.map((output) => output['content-type']))].join(', ');
+  return validationResult(tool.name, contentTypes || 'none', checks);
+}
+
+function getIngestRequestValidators(): SchemaValidators {
+  if (!ingestRequestValidators) {
+    const draftReportSchema = JSON.parse(readFileSync(DRAFT_REPORT_SCHEMA_PATH, 'utf-8'));
+    const requestSchema = JSON.parse(readFileSync(DRAFT_REPORT_INGEST_REQUEST_SCHEMA_PATH, 'utf-8'));
+    // Dedicated instances, so registering the draft report schema under the name the
+    // request schema refers to it by can't clash with the output validators.
+    const compileRequest = (allErrors: boolean): ValidateFunction => {
+      const ajv = new Ajv({ allErrors, strict: false });
+      addFormats(ajv);
+      ajv.addSchema(draftReportSchema, INGEST_DRAFT_REPORT_REF);
+      return ajv.compile(requestSchema);
+    };
+    ingestRequestValidators = { firstError: compileRequest(false), allErrors: compileRequest(true) };
+  }
+  return ingestRequestValidators;
+}
+
+/**
+ * Compiles the ingest request schemas now rather than on the first submission. Compiling
+ * takes seconds and blocks the event loop. Throws if the schemas can't be loaded.
+ */
+export function preloadIngestRequestSchemas(): void {
+  getIngestRequestValidators();
+}
+
+/**
+ * Validates a whole draft report ingest request, `draftReport` included, against the
+ * published ingest request schema, as Dragon Copilot does before it looks anything up.
+ * Errors are bounded as for callback bodies. Throws if the schemas can't be loaded.
+ */
+export function validateIngestRequest(body: unknown): ValidationCheck[] {
+  const validators = getIngestRequestValidators();
+  const checks = new CheckCollector(!exceedsValueLimit(body, MAX_FULL_ERROR_LIST_VALUES));
+  checks.validate('Ingest request schema', validators, body, '');
+  return checks.finish();
 }
 
 function isEnvelope(body: unknown): body is Record<string, unknown> {
