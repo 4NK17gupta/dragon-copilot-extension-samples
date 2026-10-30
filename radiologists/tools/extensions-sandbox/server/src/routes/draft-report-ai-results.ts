@@ -237,7 +237,9 @@ draftReportIngestRouter.post(INGEST_ROUTE, (req: Request<{ tenantId: string; env
       : { check: extensionCheck, passed: true });
 
     const requestedTool = request.toolName.trim();
-    const tool = manifest.tools.find((candidate) => candidate.name.toLowerCase() === requestedTool.toLowerCase());
+    // An exact match wins, as manifest validation allows names that differ only in case.
+    const tool = manifest.tools.find((candidate) => candidate.name === requestedTool)
+      ?? manifest.tools.find((candidate) => candidate.name.toLowerCase() === requestedTool.toLowerCase());
     const toolCheck = 'Tool is a partnerInitiated preDraftReportGeneration tool';
     if (!tool || tool.toolType !== 'partnerInitiated' || tool.capability !== 'preDraftReportGeneration') {
       reject(404, 'ToolNotFound', toolCheck, tool
@@ -338,8 +340,17 @@ draftReportResultsRouter.get('/settings', (_req, res) => {
   res.json(sessionStore.draftReports.getSettings());
 });
 
+/**
+ * Fits the largest valid settings body, every value at MAX_SETTING_LENGTH with each
+ * character escaped as `\uXXXX`, which the global 100 KB parser would reject.
+ */
+const SETTINGS_BODY_LIMIT = (MAX_ORDERS + 1) * (MAX_SETTING_LENGTH * 6 + 4) + 1024;
+
+// Mount this router before the global JSON parser, so this one parses the settings body.
+const parseSettingsJson = json({ limit: SETTINGS_BODY_LIMIT, inflate: false });
+
 /** PUT /api/draft-report-ai-results/settings — updates `vendorName` and/or `orders`. */
-draftReportResultsRouter.put('/settings', (req, res) => {
+draftReportResultsRouter.put('/settings', parseSettingsJson, (req, res) => {
   const update = parseSettings(req.body);
   if (typeof update === 'string') {
     res.status(400).json({ error: update });

@@ -7,7 +7,9 @@ import { jsonBodyParser } from '../middleware/json-body.js';
 import {
   CORRELATION_ID_HEADER, MAX_JSON_DEPTH, draftReportIngestRouter, draftReportResultsRouter,
 } from '../routes/draft-report-ai-results.js';
-import { DEFAULT_VENDOR_NAME, DraftReportResultStore, MAX_STORED_RESULTS } from '../store/draft-report-results.js';
+import {
+  DEFAULT_VENDOR_NAME, DraftReportResultStore, MAX_ORDERS, MAX_SETTING_LENGTH, MAX_STORED_RESULTS,
+} from '../store/draft-report-results.js';
 import { sessionStore } from '../store/session.js';
 import type { ExtensionManifest } from '../schemas/manifest.schema.js';
 
@@ -34,10 +36,10 @@ let baseUrl: string;
 
 beforeAll(async () => {
   const app = express();
-  // Keep the same order as index.ts: the ingest route parses its own body.
+  // Keep the same order as index.ts: both routers parse their own bodies.
   app.use('/api/v1', draftReportIngestRouter);
-  app.use(jsonBodyParser);
   app.use('/api/draft-report-ai-results', draftReportResultsRouter);
+  app.use(jsonBodyParser);
   server = await new Promise<Server>((resolve) => {
     const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
   });
@@ -206,6 +208,14 @@ describe('Draft report ingest route', () => {
     expect(JSON.parse(stored.output)).toMatchObject({
       extensionName: 'sampleRadiologyExtension', toolName: 'preDraftReportGeneratorTool',
     });
+  });
+
+  it('prefers the tool named exactly over one whose name differs only in case', async () => {
+    const manifest = structuredClone(mixedManifest);
+    const [qualityCheckTool, partnerTool] = manifest.tools;
+    qualityCheckTool.name = partnerTool.name.toLowerCase();
+    sessionStore.setManifest(manifest);
+    expect((await submit(ingestExample)).status).toBe(200);
   });
 
   it('records every submission in the session validation results', async () => {
@@ -413,6 +423,13 @@ describe('Draft report sandbox settings', () => {
     expect((await submit(ingestExample)).status).toBe(404);
     const accepted = await submit(example((request) => { request.draftReport.imagingStudy.accessionNumber = 'ACC-NEW'; }));
     expect(accepted.status).toBe(200);
+  });
+
+  it(`accepts ${MAX_ORDERS} orders of ${MAX_SETTING_LENGTH} characters, beyond the global 100 KB body limit`, async () => {
+    const orders = Array.from({ length: MAX_ORDERS }, (_, index) => String(index).padStart(MAX_SETTING_LENGTH, 'A'));
+    const response = await putSettings({ orders });
+    expect(response.status).toBe(200);
+    expect((await response.json()).orders).toEqual(orders);
   });
 
   it.each([

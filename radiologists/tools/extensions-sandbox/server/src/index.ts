@@ -43,6 +43,8 @@ app.use(localRequestGuard);
 app.use('/api/partnerInitiated', partnerInitiatedCallbackRouter);
 // Like the callback router, it parses its own body so parse failures shape its response.
 app.use('/api/v1', draftReportIngestRouter);
+// Before the global parser, as its settings body can exceed the global 100 KB limit.
+app.use('/api/draft-report-ai-results', draftReportResultsRouter);
 app.use(jsonBodyParser);
 
 app.use('/api/health', healthRouter);
@@ -50,7 +52,6 @@ app.use('/api/manifest', manifestRouter);
 app.use('/api/validate', validateRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/cli', cliRouter);
-app.use('/api/draft-report-ai-results', draftReportResultsRouter);
 
 const ROUTES = [
   '/api/health', '/api/manifest', '/api/partnerInitiated',
