@@ -8,10 +8,17 @@
  * to the CLI. Keep it free of CLI-only dependencies.
  */
 
-/** The integration pattern a tool uses. */
+/**
+ * The interaction pattern a tool uses.
+ * - `contractBased`: Dragon Copilot calls the partner's `endpoint` with the declared `inputs`.
+ * - `partnerInitiated`: the partner submits results to Dragon Copilot; no endpoint is called and no inputs are sent.
+ */
 export type ToolType = 'contractBased' | 'partnerInitiated';
 
-/** The capability a tool provides. */
+/**
+ * The capability a tool provides. Each capability is delivered by exactly one tool type:
+ * `qualityCheck` is `contractBased`, `preDraftReportGeneration` is `partnerInitiated`.
+ */
 export type Capability = 'qualityCheck' | 'preDraftReportGeneration';
 
 export interface DcrExtensionManifest {
@@ -32,9 +39,9 @@ export interface DcrTool {
   toolType: ToolType;
   capability: Capability;
   description: string;
-  /** Required for contractBased tools; omitted for partnerInitiated, which are never called. */
+  /** Required for contractBased tools; omitted for partnerInitiated tools, which are never called. */
   endpoint?: string;
-  /** Required for contractBased tools; omitted for partnerInitiated, which receive no inputs. */
+  /** Required for contractBased tools; omitted for partnerInitiated tools, which receive no inputs. */
   inputs?: DcrInput[];
   outputs: DcrOutput[];
   relevanceFilteringCriteria?: RelevanceFilteringCriteria;
@@ -74,7 +81,9 @@ export interface ToolTemplate {
   toolType: ToolType;
   capability: Capability;
   description: string;
+  /** Required for contractBased tools; omitted for partnerInitiated tools. */
   endpoint?: string;
+  /** Required for contractBased tools; omitted for partnerInitiated tools. */
   inputs?: Array<{
     name: string;
     description: string;

@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { ExtensionManifest } from '../schemas/manifest.schema.js';
 import { getToolsForCapability } from '../utils/tool-metadata.js';
 
@@ -6,6 +8,10 @@ import { getToolsForCapability } from '../utils/tool-metadata.js';
  * Unit tests for the tool metadata utility.
  * Tests the filtering that powers GET /api/manifest/capabilities/:capabilityName/tools.
  */
+
+function loadFixture(name: string): ExtensionManifest {
+  return JSON.parse(readFileSync(resolve(__dirname, 'fixtures', name), 'utf-8')) as ExtensionManifest;
+}
 
 const baseTool = {
   toolType: 'contractBased' as const,
@@ -48,12 +54,36 @@ const sampleManifest = {
 } as unknown as ExtensionManifest;
 
 describe('Tool Metadata - getToolsForCapability', () => {
+  it('returns all draft tools without requiring endpoints or inputs, excluding other capabilities', () => {
+    const manifest: ExtensionManifest = JSON.parse(readFileSync(
+      new URL('./fixtures/valid-manifest-partner-initiated.json', import.meta.url), 'utf-8',
+    ));
+    manifest.tools.push(
+      { ...manifest.tools[0], name: 'secondPreDraftTool' },
+      { ...baseTool, name: 'qualityCheckTool', capability: 'qualityCheck', description: 'Quality check' },
+    );
+
+    const tools = getToolsForCapability(manifest, 'preDraftReportGeneration');
+
+    expect(tools?.map((tool) => tool.name)).toEqual(['preDraftReportGeneratorTool', 'secondPreDraftTool']);
+    expect(tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: 'preDraftReportGeneratorTool',
+        toolType: 'partnerInitiated',
+        inputs: [],
+        outputs: [{ name: 'preDraftReportResult', contentType: 'application/vnd.ms-dragon.rad.draft-report+json' }],
+      }),
+    ]));
+    expect(tools?.every((tool) => tool.endpoint === undefined)).toBe(true);
+  });
+
   it('should return tools for a valid capability', () => {
     const tools = getToolsForCapability(sampleManifest, 'qualityCheck');
 
     expect(tools).not.toBeNull();
     expect(tools).toHaveLength(2);
     expect(tools![0].name).toBe('tool-clinical-qc');
+    expect(tools![0].toolType).toBe('contractBased');
     expect(tools![1].name).toBe('tool-billing-qc');
   });
 
@@ -157,5 +187,68 @@ describe('Tool Metadata - getToolsForCapability', () => {
 
     expect(tools![0].endpoint).toBe('https://api.example.com/v1/process');
     expect(tools![1].endpoint).toBe('https://api.example.com/v1/billing');
+  });
+
+  it('should expose toolType so the UI can tell executable tools apart', () => {
+    const tools = getToolsForCapability(sampleManifest, 'qualityCheck');
+    expect(tools!.map((t) => t.toolType)).toEqual(['contractBased', 'contractBased']);
+  });
+
+  it('should describe a partnerInitiated tool without an endpoint or inputs', () => {
+    const manifest = {
+      name: 'partner',
+      description: 'Partner',
+      version: '0.0.1',
+      auth: { tenantId: '00000000-0000-0000-0000-000000000000' },
+      tools: [
+        {
+          name: 'pre-draft',
+          toolType: 'partnerInitiated',
+          capability: 'preDraftReportGeneration',
+          description: 'Submits draft reports',
+          outputs: baseTool.outputs,
+        },
+      ],
+    } as unknown as ExtensionManifest;
+
+    const [tool] = getToolsForCapability(manifest, 'preDraftReportGeneration')!;
+    expect(tool.toolType).toBe('partnerInitiated');
+    expect(tool.endpoint).toBeUndefined();
+    expect(tool.inputs).toEqual([]);
+  });
+
+  describe('with the mixed contractBased + partnerInitiated sample fixture', () => {
+    const manifest = loadFixture('valid-manifest-mixed-tool-types.json');
+
+    it('returns the contractBased tool for qualityCheck with its endpoint and inputs', () => {
+      const tools = getToolsForCapability(manifest, 'qualityCheck');
+
+      expect(tools).toHaveLength(1);
+      const [tool] = tools!;
+      expect(tool).toMatchObject({
+        name: 'sampleQualityCheckTool',
+        toolType: 'contractBased',
+        endpoint: 'https://publisher.example.com/quality-check',
+        outputs: [{ name: 'qualityCheckResult', contentType: 'application/vnd.ms-dragon.rad.quality-check-result+json' }],
+      });
+      expect(tool.inputs.map(({ name, contentType }) => ({ name, contentType }))).toEqual([
+        { name: 'report', contentType: 'application/vnd.ms-dragon.rad.report+json' },
+        { name: 'patientInformation', contentType: 'application/vnd.ms-dragon.rad.patient-information+json' },
+      ]);
+    });
+
+    it('returns the partnerInitiated tool for preDraftReportGeneration without an endpoint or inputs', () => {
+      const tools = getToolsForCapability(manifest, 'preDraftReportGeneration');
+
+      expect(tools).toHaveLength(1);
+      const [tool] = tools!;
+      expect(tool).toMatchObject({
+        name: 'preDraftReportGeneratorTool',
+        toolType: 'partnerInitiated',
+        inputs: [],
+        outputs: [{ name: 'preDraftReportResult', contentType: 'application/vnd.ms-dragon.rad.draft-report+json' }],
+      });
+      expect(tool.endpoint).toBeUndefined();
+    });
   });
 });

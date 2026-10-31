@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import Ajv, { type ValidateFunction, type ErrorObject } from 'ajv';
 import addFormats from 'ajv-formats';
 import { sessionStore } from '../store/session.js';
+import type { ManifestTool } from '../schemas/manifest.schema.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('validation');
@@ -133,15 +134,19 @@ export function getInputSchemaForContentType(contentType: string): Record<string
  * Validates a tool execution response against the expected output schema.
  *
  * Resolution order:
- *  1. Find the tool in the loaded manifest by name.
+ *  1. Use the given tool, or find it in the loaded manifest by name.
  *  2. Determine the output content-type from the tool's first output.
  *  3. Look up the corresponding JSON Schema in the registry.
  *  4. Validate the payload with AJV.
+ *
+ * Callers that have already resolved the tool (for example by capability and
+ * name) should pass it, so the response is checked against that same tool.
  */
 export function validateToolResponse(
-  toolName: string,
+  toolOrName: ManifestTool | string,
   responsePayload: unknown,
 ): ValidationResult {
+  const toolName = typeof toolOrName === 'string' ? toolOrName : toolOrName.name;
   const timestamp = new Date().toISOString();
   const manifest = sessionStore.getManifest();
 
@@ -151,7 +156,9 @@ export function validateToolResponse(
   }
 
   // ── Guard: tool not found ──────────────────────────────────────────────
-  const tool = manifest.tools.find((t) => t.name === toolName);
+  const tool = typeof toolOrName === 'string'
+    ? manifest.tools.find((t) => t.name === toolName)
+    : toolOrName;
   if (!tool) {
     const available = manifest.tools.map((t) => t.name).join(', ');
     return makeErrorResult(
@@ -432,11 +439,15 @@ function buildResult(
  *  3. Validate the provided input data with AJV.
  *
  * Returns an array of InputValidationResult – one per input.
+ *
+ * Callers that have already resolved the tool (for example by capability and
+ * name) should pass it, so the inputs are checked against that same tool.
  */
 export function validateToolInputs(
-  toolName: string,
+  toolOrName: ManifestTool | string,
   inputs: Record<string, unknown>,
 ): InputValidationResult[] {
+  const toolName = typeof toolOrName === 'string' ? toolOrName : toolOrName.name;
   const timestamp = new Date().toISOString();
   const manifest = sessionStore.getManifest();
 
@@ -452,7 +463,9 @@ export function validateToolInputs(
     }];
   }
 
-  const tool = manifest.tools.find((t) => t.name === toolName);
+  const tool = typeof toolOrName === 'string'
+    ? manifest.tools.find((t) => t.name === toolName)
+    : toolOrName;
   if (!tool) {
     const available = manifest.tools.map((t) => t.name).join(', ');
     return [{

@@ -8,13 +8,17 @@ import type {
 } from '../types.js';
 import {
   BODY_PART_CHOICES,
+  CAPABILITY_BY_TOOL_TYPE,
   CAPABILITY_CHOICES,
-  CAPABILITY_OUTPUT,
+  DEFAULT_OUTPUT_CONTENT_TYPE,
+  DEFAULT_TOOL_TYPE,
+  DRAFT_REPORT_CONTENT_TYPE,
+  DRAFT_REPORT_OUTPUT_DEFAULTS,
   INPUT_TYPE_CHOICES,
   MANIFEST_DEFAULTS,
   MODALITY_CHOICES,
-  TOOL_TYPE_CAPABILITIES,
   TOOL_TYPE_CHOICES,
+  getDefaultOutputContentType,
   getInputDescription,
   getInputName
 } from '../manifest/index.js';
@@ -45,8 +49,10 @@ export interface ToolDetails {
   toolDescription: string;
   toolType: ToolType;
   capability: Capability;
+  /** Set only for contractBased tools. */
   endpoint?: string | undefined;
-  inputTypes: string[];
+  /** Set only for contractBased tools. */
+  inputTypes?: string[] | undefined;
   outputs: DcrOutput[];
   relevanceFilteringCriteria?: RelevanceFilteringCriteria | undefined;
 }
@@ -188,18 +194,17 @@ export async function promptToolDetails(
   const toolType = await select({
     message: 'Tool type:',
     choices: TOOL_TYPE_CHOICES,
-    default: 'contractBased'
+    default: DEFAULT_TOOL_TYPE
   });
 
-  const capability = await select({
-    message: 'Capability:',
-    choices: CAPABILITY_CHOICES.filter(choice => TOOL_TYPE_CAPABILITIES[toolType].includes(choice.value))
-  });
+  // Each tool type delivers exactly one capability, so derive it instead of prompting.
+  const capability = CAPABILITY_BY_TOOL_TYPE[toolType];
+  const capabilityLabel = CAPABILITY_CHOICES.find((choice) => choice.value === capability)?.name ?? capability;
+  console.log(`Capability: ${capabilityLabel} (determined by tool type)`);
 
-  // A partnerInitiated tool is never called by Dragon Copilot, so it declares neither.
+  // partnerInitiated tools are never called by Dragon Copilot, so they declare no endpoint or inputs.
   let endpoint: string | undefined;
-  let inputTypes: string[] = [];
-
+  let inputTypes: string[] | undefined;
   if (toolType === 'contractBased') {
     endpoint = await input({
       message: 'API endpoint:',
@@ -220,7 +225,7 @@ export async function promptToolDetails(
     });
   }
 
-  const outputs = await promptOutputs(capability);
+  const outputs = await promptOutputs(getDefaultOutputContentType(toolType));
 
   // Optionally prompt for relevance filtering criteria
   const addFiltering = await confirm({
@@ -239,17 +244,20 @@ export async function promptToolDetails(
 /**
  * Prompts for output details
  */
-export async function promptOutputDetails(capability: Capability, defaults?: { name?: string; description?: string; schemaVersion?: string }): Promise<DcrOutput> {
-  const expected = CAPABILITY_OUTPUT[capability];
+export async function promptOutputDetails(
+  defaults?: { name?: string; description?: string; schemaVersion?: string },
+  contentType: string = DEFAULT_OUTPUT_CONTENT_TYPE
+): Promise<DcrOutput> {
+  const isDraftReport = contentType === DRAFT_REPORT_CONTENT_TYPE;
 
   const name = await input({
     message: 'Output name:',
-    default: defaults?.name || expected.name
+    default: defaults?.name || (isDraftReport ? DRAFT_REPORT_OUTPUT_DEFAULTS.name : MANIFEST_DEFAULTS.outputName)
   });
 
   const description = await input({
     message: 'Output description:',
-    default: defaults?.description || expected.description
+    default: defaults?.description || (isDraftReport ? DRAFT_REPORT_OUTPUT_DEFAULTS.description : MANIFEST_DEFAULTS.outputDescription)
   });
 
   const schemaVersion = await input({
@@ -260,7 +268,7 @@ export async function promptOutputDetails(capability: Capability, defaults?: { n
   return {
     name,
     description,
-    'content-type': expected.contentType,
+    'content-type': contentType,
     schemaVersion
   };
 }
@@ -304,12 +312,12 @@ export async function promptRelevanceFilteringCriteria(): Promise<RelevanceFilte
 /**
  * Prompts for multiple outputs
  */
-export async function promptOutputs(capability: Capability): Promise<DcrOutput[]> {
+export async function promptOutputs(contentType: string = DEFAULT_OUTPUT_CONTENT_TYPE): Promise<DcrOutput[]> {
   const outputs: DcrOutput[] = [];
 
   console.log('\n Configuring outputs for your tool...');
 
-  const firstOutput = await promptOutputDetails(capability);
+  const firstOutput = await promptOutputDetails(undefined, contentType);
   outputs.push(firstOutput);
 
   let addMoreOutputs = await confirm({
@@ -318,7 +326,7 @@ export async function promptOutputs(capability: Capability): Promise<DcrOutput[]
   });
 
   while (addMoreOutputs) {
-    const additionalOutput = await promptOutputDetails(capability);
+    const additionalOutput = await promptOutputDetails(undefined, contentType);
     outputs.push(additionalOutput);
 
     addMoreOutputs = await confirm({

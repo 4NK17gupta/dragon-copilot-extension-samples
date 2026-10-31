@@ -31,13 +31,131 @@ Open `http://localhost:3000` in your browser.
 `npm run dev` starts both the frontend (Vite dev server on port 3000) and the backend (Express on port 4000) concurrently, with hot-reload. The frontend proxies API calls to the backend automatically, so port 3000 is the only URL you need.
 
 > The Express server binds to `127.0.0.1` and is reachable only from the local machine.
+> It also rejects (`403`) requests whose `Host` header is not `localhost`, `127.0.0.1` or `[::1]`,
+> and state-changing requests sent from a non-local browser `Origin`, so other web pages cannot
+> drive it through DNS rebinding or cross-site form posts. Clients that send no `Origin`
+> (curl, the samples) are unaffected. The sandbox's own routes reject compressed request bodies
+> (`Content-Encoding: gzip`, `deflate` or `br`) with `415`; send JSON uncompressed.
+
+### Testing partner-initiated tools
+
+For a `partnerInitiated` tool, your service calls Dragon Copilot rather than the other way round. The
+sandbox stands in for Dragon Copilot's submission endpoint, at the same path:
+
+```
+POST http://localhost:3000/api/v1/tenants/{customerTenantId}/environments/{environmentId}/draft-report-ai-results
+```
+
+Port `4000` works too. Point your service's Dragon Copilot base URL at the sandbox and send what you
+would send to Dragon Copilot: the full request, with `manifestName`, `toolName` and `draftReport`, as
+[Submitting a result](../../partner-initiated/README.md#submitting-a-result) describes. While the sandbox
+is listening (see **Run Test** below), the endpoint answers the way Dragon Copilot does:
+
+- the same status codes, `reason` values and bodies, with an `x-ms-correlation-id` header on every response;
+- the same validation, with the same error keys, messages and order. A missing property, a value of the
+  wrong type, a number sent as a string and a name with surrounding spaces are all handled as Dragon
+  Copilot handles them;
+- the same checks after validation, in the same order: the environment, the extension (`manifestName`,
+  plus the Marketplace IDs if you send them), the tool, a result already stored for
+  `draftReport.identifier`, then the order with the accession number.
+
+One difference in wording is deliberate. Where Dragon Copilot's message names one of its internal .NET
+types, the sandbox's message gives a short name instead, such as `DraftReport` or `Section`.
+
+The endpoint answers for a simulated customer environment, which the **Setup** tab shows and lets you change:
+
+| Setting | Default | Notes |
+|---|---|---|
+| Customer tenant ID | `11111111-1111-1111-1111-111111111111` | The first ID in the URL. |
+| Environment ID | `22222222-2222-2222-2222-222222222222` | The second ID in the URL. |
+| Installed extension | The loaded manifest, installed as a custom app | As during development, it has no Marketplace IDs, so a submission that sends them gets `ExtensionNotFound`. To test an extension purchased from Microsoft Marketplace, turn on **Extension purchased from Microsoft Marketplace** and enter its publisher, offer and plan IDs. A submission without Marketplace IDs matches either way. |
+| Orders | `ACC-0000001` | Accession numbers, one per line. List one twice to get `MultipleOrdersMatched`. |
+
+The bundled example request uses accession number `ACC-0000001`, the default order. It also sends
+placeholder Marketplace IDs (`101`, `202` and `303`), so against the default custom app it gets
+`404 ExtensionNotFound`, as it would from Dragon Copilot. To send it as it is, turn on
+**Extension purchased from Microsoft Marketplace** and enter those IDs, or remove the three IDs from the
+request. Either way, load the sample manifest, `radiologists/src/samples/PartnerInitiated/extension.yaml`,
+first.
+
+Stored results are kept in memory until you clear them in **Setup**, click **Reset Session**, or restart the
+sandbox, so sending the same `draftReport.identifier` again gets `409 ResultAlreadyStored`, as it would
+from Dragon Copilot. Stopping listening, **Reset Inputs** and changes in **Setup** keep them; results are
+stored per environment, so another environment ID starts with none.
+
+Not simulated:
+
+- **Authentication.** The endpoint doesn't check the access token, its permission or its tenant, so it
+  never answers `401` or `403`. See [Authentication](../../partner-initiated/authentication.md).
+- **Clinical data.** Orders are the accession numbers you list, and nothing is written to a patient
+  record. Use synthetic data.
+- **Failures inside Dragon Copilot**, which answer `500`.
+
+**Run Test** starts listening. While the sandbox listens, the endpoint answers every submission and the
+sandbox shows each one: **Results** lists the requests, newest first, with each check the endpoint made
+for the one you select; **Outputs** shows its request and response; and **Dragon Copilot Preview** shows
+the AI draft. A bar on every tab shows how many requests the sandbox has received and which one the tabs
+are showing, with its status and time; its button stops listening, or starts it again. The tabs move to
+each new request as it arrives, unless you pick an older one in **Results**: that one stays until you
+click **Show latest** in the bar. The sandbox keeps the last 20 requests since you clicked **Run Test**,
+and adds each one to the session's consolidated validation report.
+
+Listening stops when you click **Stop listening** or **Reset Inputs**, choose another tool, change the
+manifest or close the page. Until you click **Run Test** again, the endpoint answers `503` with a message,
+and checks and stores nothing.
+
+For example, load the sample manifest, turn on **Extension purchased from Microsoft Marketplace** with IDs
+`101`, `202` and `303`, and click **Run Test**. Then, from the sandbox directory in PowerShell 7, send the
+bundled example:
+
+```powershell
+$body = Get-Content ..\..\partner-initiated\samples\PreDraftReportGeneration-Ingest-Request-Example.json -Raw
+$uri = 'http://localhost:3000/api/v1/tenants/11111111-1111-1111-1111-111111111111/environments/22222222-2222-2222-2222-222222222222/draft-report-ai-results'
+Invoke-WebRequest -Method Post -Uri $uri -ContentType 'application/json' -Body $body -SkipHttpErrorCheck
+```
+
+[`submit-pre-draft-report.http`](../../src/samples/PartnerInitiated/submit-pre-draft-report.http) works
+too, with `@dragonCopilot = http://localhost:3000` and the default IDs above.
+
+The run API is `POST /api/manifest/partner-initiated/start` with
+`{ "capability": "preDraftReportGeneration", "tool": "<manifest tool name>" }` to start listening,
+`GET /api/manifest/partner-initiated/{runId}?after={n}` for the requests after the `n`th, and
+`DELETE /api/manifest/partner-initiated/{runId}` to stop. Only one run listens at a time, so starting
+another replaces it. A script that sends submissions without the UI starts a run this way first.
+The UI polls every second while listening; it does not use
+Server-Sent Events (SSE). The draft report schemas in `radiologists/partner-initiated/`
+are synced into the server before dev/build/test and packaged with the built server.
+After a successful submission, **Dragon Copilot Preview** displays an **AI draft** card
+with the submitted sections sorted by `sectionOrder`, uppercase section labels,
+and AI/third-party disclaimers. A `title` section appears without a label; no
+title or clinical content is inferred from study metadata. Both `plain_text`
+(preserving line breaks) and `markdown` section content are supported. Markdown
+HTML is displayed as text, links are non-interactive, and images are represented
+by their alternate text without loading remote resources. A rejected submission
+shows an error rather than a draft; the full request and response remain in **Outputs**.
+The public capability identifier remains `preDraftReportGeneration`; existing
+tool names, template IDs, and example filenames are unchanged.
 
 ### Creating a manifest with the CLI wizard
 
 If you don't have a manifest yet, click **Generate Manifest** in the Manifest Editor toolbar. The
 dialog asks the core questions from `dragon-copilot radiologists init`, either starting from a built-in
-template (`quality-check` or `pre-draft-report`) or from your own values — extension name, tenant, tool endpoint, input data
-types, output, and optional relevance filtering by body part and modality.
+template (`quality-check` for Report Optimization, `pre-draft-report` for AI Draft) or from your own
+values — extension name, tenant, and one or more tools, each with a name, description, tool type,
+output, and optional relevance filtering by body part and modality.
+
+Each tool's **Tool type** decides what else is asked:
+
+- **Contract Based** (`qualityCheck`): Dragon Copilot calls your endpoint, so the tool needs an API
+  endpoint and at least one input data type.
+- **Partner Initiated** (`preDraftReportGeneration`, AI Draft): you submit draft reports to Dragon
+  Copilot, so there is no endpoint or input to fill in. The output name and description switch to the
+  draft report defaults unless you have already changed them. Relevance filtering is declarative and
+  not currently enforced for these tools.
+
+The capability is shown read-only; it follows from the tool type. Use **Add another tool** to put
+several tools, of either type, in one manifest. Tool names must be unique, and **Generate manifest**
+stays disabled until they are.
 
 **Generate manifest** posts the answers to `POST /api/cli/generate`, where the CLI's own manifest code
 assembles the YAML; the result is loaded into the editor and validated immediately, so you can go
@@ -128,7 +246,7 @@ extensions-sandbox/
 └── server/               # Express backend
     ├── scripts/
     │   ├── generate-output-schemas.ts  # Generates JSON Schemas from OpenAPI spec
-    │   └── sync-schemas.ts             # Syncs the manifest schema, OpenAPI spec, and CLI manifest core from their owners
+    │   └── sync-schemas.ts             # Syncs the manifest schema, OpenAPI spec, partner-initiated schemas, and CLI manifest core from their owners
     ├── src/
     │   ├── index.ts      # Server entry point
     │   ├── cli/
@@ -137,7 +255,8 @@ extensions-sandbox/
     │   ├── schemas/
     │   │   ├── radiologists/
     │   │   │   ├── radiologists-extension-manifest-schema.json  # Synced from the CLI (git-ignored)
-    │   │   │   └── radiologists-extensibility-api.yaml          # Synced from radiologists/ (git-ignored)
+    │   │   │   ├── radiologists-extensibility-api.yaml          # Synced from radiologists/ (git-ignored)
+    │   │   │   └── partner-initiated/                           # Draft report schemas and samples/ example payloads, synced from radiologists/partner-initiated/ (git-ignored)
     │   │   ├── generated-schemas/      # Auto-generated (do not edit by hand)
     │   │   │   ├── patient-information.json
     │   │   │   ├── quality-check-result.json
@@ -145,14 +264,22 @@ extensions-sandbox/
     │   │   └── manifest.schema.ts      # TypeScript types for manifests
     │   ├── routes/
     │   │   ├── cli.ts                  # Manifest generation with the CLI's own code
-    │   │   └── manifest.ts
+    │   │   ├── dragon-copilot-api.ts   # The simulated Dragon Copilot submission endpoint (/api/v1)
+    │   │   ├── manifest.ts
+    │   │   └── partner-initiated.ts    # Run Test for partnerInitiated tools: start, poll and stop a run
     │   ├── services/
+    │   │   ├── draft-report-submission/  # Reads and validates a submission as Dragon Copilot does
     │   │   ├── manifest-schema.ts      # Shared manifest schema validation + error shaping
     │   │   └── validation.ts
+    │   ├── store/
+    │   │   ├── partner-run.ts          # The listening run and the requests it recorded
+    │   │   └── simulated-environment.ts  # The customer environment the simulated endpoint answers for
     │   ├── utils/
     │   │   └── schema-path.ts          # Central path resolution for schemas
     │   └── __tests__/
-    │       └── fixtures/               # Test resource files
+    │       └── fixtures/               # Test resource files, including:
+    │           ├── valid-manifest-partner-initiated.json   # AI Draft: one partnerInitiated tool, no endpoint/inputs
+    │           └── valid-manifest-mixed-tool-types.json    # contractBased + partnerInitiated tools (mirrors radiologists/manifest/extension.yaml)
     └── tsconfig.json     # TypeScript configuration
 ```
 
@@ -166,13 +293,20 @@ npm run generate-schemas
 
 The generation script (`scripts/generate-output-schemas.ts`) extracts the `PatientInformation`, `Report`, and `QualityCheckResult` schema definitions (and everything they reference, e.g. `Recommendation`, `Provenance`) from the OpenAPI YAML and produces standalone JSON Schema files. `patient-information.json` and `report.json` are used to validate and describe tool *inputs*; `quality-check-result.json` is used to validate extension *responses*.
 
-> **Note:** The sandbox owns neither contract it validates against, nor the code behind the CLI
-> wizard. All three are synced in at dev/build/test time by `scripts/sync-schemas.ts`, and the local
+> **Note:** The sandbox owns none of the contracts it validates against, nor the code behind the CLI
+> wizard. All of them are synced in at dev/build/test time by `scripts/sync-schemas.ts`, and the local
 > copies are git-ignored so the upstream copy stays the single source of truth:
 > the manifest schema (`radiologists-extension-manifest-schema.json`) and the manifest core
-> (`src/cli/radiologists/`) are owned by the `tools/dragon-copilot-cli` package, and the OpenAPI spec
-> (`radiologists-extensibility-api.yaml`) is owned by `radiologists/`.
-> `src/__tests__/schema-sync.test.ts` fails if any copy drifts from its source. The OpenAPI spec will
+> (`src/cli/radiologists/`) are owned by the `tools/dragon-copilot-cli` package, the OpenAPI spec
+> (`radiologists-extensibility-api.yaml`) is owned by `radiologists/`, and the draft report schemas
+> for `partnerInitiated` tools (`partner-initiated/draft-report-schema.json` and
+> `partner-initiated/draft-report-ingest-request-schema.json`) are owned by `radiologists/partner-initiated/`.
+> The example ingest request and retrieve response payloads (`PreDraftReportGeneration-*-Example.json`)
+> are copied byte-for-byte from `radiologists/partner-initiated/samples/` into `partner-initiated/samples/`;
+> their source paths are recorded in `src/utils/schema-path.ts`.
+> `src/__tests__/schema-sync.test.ts` fails if any copy drifts from its source, and
+> `src/__tests__/manifest-validation.test.ts` fails if the AI Draft and mixed manifest fixtures drift from
+> `radiologists/src/samples/PartnerInitiated/extension.yaml` and `radiologists/manifest/extension.yaml`. The OpenAPI spec will
 > be replaced with an internal package reference once `diag-radex-extension-service` publishes its
 > authoritative version.
 
@@ -194,16 +328,24 @@ All routes are served under `http://localhost:4000`.
 | POST   | /api/manifest/validate                            | Validate raw manifest text supplied in the request body                 |
 | GET    | /api/manifest                                     | Get the currently loaded manifest metadata (404 if none)                |
 | GET    | /api/manifest/raw                                 | Get the raw manifest text exactly as uploaded                           |
-| DELETE | /api/manifest                                     | Clear the session manifest                                              |
+| DELETE | /api/manifest                                     | Reset Session: clear the session manifest, its validation results and listening run, and the simulated endpoint's stored results |
 | GET    | /api/manifest/capabilities                        | List capabilities with their display names, grouped by each tool's `capability` field |
 | GET    | /api/manifest/capabilities/:capabilityName/tools  | List the tools defined under a given capability                         |
 | POST   | /api/manifest/execute                             | Execute a tool: validate the inputs, POST a `ProcessRequest` to the endpoint the manifest declares, then validate the response |
+| POST   | /api/manifest/partner-initiated/start             | Run Test for a `partnerInitiated` tool: start listening for submissions to the simulated Dragon Copilot endpoint, replacing any earlier run |
+| GET    | /api/manifest/partner-initiated/:runId            | Poll a run: the endpoint URL, the number of requests, and the kept requests, each with its request, response and checks. `?after=n` returns only the requests after the `n`th |
+| DELETE | /api/manifest/partner-initiated/:runId            | Stop listening                                                          |
 
 `/api/manifest/execute` validates on both sides of the call. Inputs are checked against the schemas
 for their declared content-types before the extension is reached — a failure returns `422` and no
 call is made — and the returned payload is checked against the tool's output schema. Both results
 come back in the response body, as `inputValidation` and `validation`. The `/api/validate/*` routes
 below expose the same checks individually, for validating a payload without executing anything.
+
+Malformed request bodies are rejected before any of this: invalid JSON returns `400`, an
+oversized body `413`, and `inputs` that is not an object of string values — or that uses a
+reserved name segment (`__proto__`, `prototype`, `constructor`) — returns `400`. Server errors
+return a generic `500` and are logged without the request body.
 
 ### Validation
 
@@ -215,6 +357,23 @@ below expose the same checks individually, for validating a payload without exec
 | DELETE | /api/validate/results             | Clear stored validation results                                    |
 
 Input and response validation return `200` when valid and `422` when the payload fails schema validation.
+
+### Simulated Dragon Copilot API
+
+| Method | Path                                                                                   | Description |
+|--------|----------------------------------------------------------------------------------------|-------------|
+| POST   | /api/v1/tenants/:customerTenantId/environments/:environmentId/draft-report-ai-results | Submit a draft report, as to Dragon Copilot, while the sandbox is listening; `503` otherwise. See [Testing partner-initiated tools](#testing-partner-initiated-tools). |
+
+Like Dragon Copilot, other methods on that path get `405` with `Allow: POST`, and other `/api/v1`
+paths get `404` with no body.
+
+### Simulated environment
+
+| Method | Path                                      | Description |
+|--------|-------------------------------------------|-------------|
+| GET    | /api/simulated-environment                | The simulated customer environment, its submission path and the number of stored results |
+| PUT    | /api/simulated-environment                | Change the customer tenant ID, environment ID, Marketplace IDs (`null` for a custom app) and orders |
+| DELETE | /api/simulated-environment/stored-results | Forget stored results                    |
 
 ### Authentication
 
@@ -231,12 +390,19 @@ Input and response validation return `200` when valid and `422` when the payload
 | GET    | /api/cli/options  | Templates, selectable values, and field defaults the wizard renders   |
 | POST   | /api/cli/generate | Generate a manifest from a template or wizard answers, returned as YAML |
 
-`POST /api/cli/generate` takes `mode: "template"` (with a `template` id) or `mode: "custom"` (with
-`extension` and `tool` objects), plus the `tenantId` in both cases. An omitted or blank `mode`
-defaults to `template`; any other value, including a non-string, is rejected. It returns `200` with
-the generated `yaml`, `400` when the request itself is unusable (unsupported `mode`, no tenant,
-unknown template, no tool), and `422` when the generated manifest fails schema validation — in
-which case the `yaml` is still returned alongside the errors so the editor can show them in context.
+`POST /api/cli/generate` takes `mode: "template"` (with a `template` id) or `mode: "custom"` (with an
+`extension` object and a `tools` array), plus the `tenantId` in both cases. Each tool has a `toolType`
+(`contractBased` by default); `endpoint` and `inputTypes` are used only for `contractBased` tools, and
+the capability defaults to the one paired with the tool type. A single `tool` object is still accepted
+in place of `tools`, but not both together. An omitted or blank `mode` defaults to `template`; any
+other value, including a non-string, is rejected. It returns `200` with the generated `yaml`, `400`
+when the request itself is unusable (unsupported `mode`, no tenant, unknown template, no tool, both
+`tool` and `tools`, duplicate tool names), and `422` when the generated manifest fails schema
+validation — in which case the `yaml` is still returned alongside the errors so the editor can show
+them in context.
+
+`GET /api/cli/options` also returns `capabilityByToolType` and `outputDefaultsByToolType`, and each
+template summary lists the `toolTypes` it uses.
 
 Generation runs the manifest core owned by `tools/dragon-copilot-cli` in-process (synced into
 `src/cli/radiologists/`); the CLI binary is never spawned, and it does not need to be installed.
@@ -253,7 +419,10 @@ Runtime — so that a manifest which works here works when deployed.
 2. **Validate against the contract.** The manifest is checked against the JSON Schema owned by
    `tools/dragon-copilot-cli` — the same schema the CLI enforces — so the sandbox cannot accept a
    manifest the platform would reject. Errors are mapped back to line/column positions in the
-   original text for display in the editor.
+   original text for display in the editor. To bound the work per request, a manifest with more
+   than 10,000 values (for example from expanded YAML aliases) is rejected without validation; above
+   2,000 values only the first schema error is listed; at most 100 errors are listed per run; and
+   line numbers are shown only for sources of up to 50,000 characters and 2,000 lines.
 3. **Parse capabilities and tools.** Tools are grouped by their `capability` field to drive the UI,
    exposing which tools exist and what inputs each declares.
 4. **Parse and validate inputs.** Form values arrive as flat dot-delimited paths
@@ -347,13 +516,13 @@ In the **Setup** tab, open **Authentication → Configure**:
 
 | Field | Description |
 |-------|-------------|
-| **Authenticate calls** | Toggle service-to-service auth on/off. Off = unauthenticated calls (for local testing). |
+| **Authenticate calls** | Toggle service-to-service auth on/off. Off = unauthenticated calls (for local testing). The toggle is saved as soon as you flip it; if the save fails, it switches back and the error is shown. |
 | **Tenant ID** | The Entra tenant that issues the token (your partner tenant). |
 | **Client ID** | The calling app's client id (defaults to the Dragon Copilot Extension Runtime client id). |
 | **Client Secret** | Stored **in memory on the server only**; never returned to the UI or logged. |
 | **Application ID URI / Scope** | Your extension's Application ID URI. A bare URI is fine — `/.default` is appended automatically. |
 
-Click **Save**, then **Test connection** to acquire a token without calling the extension. The result shows the token expiry and a claims-validation summary.
+Click **Save**, then **Test connection** to acquire a token without calling the extension. **Test connection** saves first and does not run if the save fails; save errors are shown under the toggle. The result shows the token expiry and a claims-validation summary.
 
 ### How it works
 
@@ -375,6 +544,7 @@ Click **Save**, then **Test connection** to acquire a token without calling the 
 
 - The client secret is held **in server memory only** — it is never persisted to disk, returned by `GET /api/auth/config`, or written to logs.
 - Auth can be toggled off at any time to test unauthenticated endpoints.
+- Tokens are only sent to `https://` endpoints, or to `http://` endpoints on `localhost`, `127.0.0.1` or `[::1]`. When auth is enabled (or a token is supplied) and the tool's endpoint is plain HTTP on any other host, `/api/manifest/execute` returns `400` without calling it.
 - See [Microsoft Entra JWT claims validation](https://learn.microsoft.com/en-us/entra/identity-platform/claims-validation) for details on validating tokens in your extension.
 
 ### Offline end-to-end testing (no Azure)

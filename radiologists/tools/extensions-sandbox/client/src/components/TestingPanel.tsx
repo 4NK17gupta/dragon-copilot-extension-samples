@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useId } from 'react';
 import {
   Button,
   Dropdown,
@@ -8,12 +8,21 @@ import {
   Spinner,
   Link,
 } from '@fluentui/react-components';
-import { ArrowCounterclockwiseRegular, CodeRegular, CopyRegular } from '@fluentui/react-icons';
+import { ArrowCounterclockwiseRegular, CodeRegular, CopyRegular, RecordStopRegular } from '@fluentui/react-icons';
 import { DynamicForm, getFieldPaths, SchemaProperty } from './DynamicForm';
 import type { DynamicFormHandle } from './DynamicForm';
 import { AuthSettings } from './AuthSettings';
 import { DragonCopilotPreview } from './DragonCopilotPreview';
+import { PartnerCaptureBar } from './PartnerCaptureBar';
+import { SimulatedEnvironmentSettings } from './SimulatedEnvironmentSettings';
+import { describeOutcome, formatReceivedTime } from './captureText';
+import { usePartnerInitiatedTest } from '../hooks/usePartnerInitiatedTest';
+import type { CapturedRequest, ExecuteResult, ValidationResult } from '../types/testing';
+import { PARTNER_INITIATED } from '../types/manifest';
+import type { ToolType } from '../types/manifest';
 import './ValidationResults.css';
+
+const PARTNER_INITIATED_AUTH_NOTE = 'Authentication is not simulated: the sandbox endpoint does not check the access token Dragon Copilot requires.';
 
 interface ToolInput {
   name: string;
@@ -34,7 +43,9 @@ interface ToolOutput {
 interface Tool {
   name: string;
   description: string;
-  endpoint: string;
+  toolType?: ToolType;
+  /** Absent for partnerInitiated tools, which Dragon Copilot never calls. */
+  endpoint?: string;
   inputs: ToolInput[];
   outputs: ToolOutput[];
 }
@@ -55,37 +66,12 @@ interface ManifestInfo {
   capabilities: string[];
 }
 
-interface ExecuteResult {
-  status: number;
-  statusText: string;
-  headers?: Record<string, string>;
-  processResponse?: { success?: boolean; message?: string; payload?: Record<string, unknown> } | null;
-  rawBody?: unknown;
-  sentRequest?: unknown;
-}
-
 interface ExecuteErrorDetails {
   message: string;
   endpoint?: string;
   cause?: string;
   troubleshooting?: string[];
   sentRequest?: unknown;
-}
-
-interface ValidationCheck {
-  check: string;
-  passed: boolean;
-  path?: string;
-  error?: string;
-}
-
-interface ValidationResult {
-  valid: boolean;
-  toolName: string;
-  outputContentType: string;
-  checks: ValidationCheck[];
-  summary: { passed: number; failed: number };
-  timestamp: string;
 }
 
 interface InputValidationCheck {
@@ -108,7 +94,16 @@ interface TestingPanelProps {
   manifestRevision: number;
 }
 
+function failedCheckIndexes(validation: ValidationResult): Set<number> {
+  return new Set(validation.checks
+    .map((check, index) => !check.passed && check.error ? index : -1)
+    .filter((index) => index >= 0));
+}
+
 export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelProps) {
+  const capabilityId = useId();
+  const toolId = useId();
+  const capturedRequestsId = useId();
   const [activeTab, setActiveTab] = useState<string>('setup');
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [selectedCapability, setSelectedCapability] = useState<string>('');
@@ -123,7 +118,43 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   const [expandedChecks, setExpandedChecks] = useState<Set<number>>(new Set());
   const [copyToast, setCopyToast] = useState(false);
   const [inputValidationErrors, setInputValidationErrors] = useState<InputValidationError[] | null>(null);
+  /** The captured request the Results, Outputs and Preview tabs show, for partnerInitiated tools. */
+  const [shownRequest, setShownRequest] = useState<CapturedRequest | null>(null);
+  /** Whether a new request replaces the shown one. It doesn't after an older request is picked. */
+  const followLastRequest = useRef(true);
   const formRef = useRef<DynamicFormHandle>(null);
+  const [partnerResultCount, setPartnerResultCount] = useState(0);
+
+  const showCapturedRequest = useCallback((request: CapturedRequest) => {
+    setResult(request);
+    setValidationResult(request.validation);
+    setShownRequest(request);
+    setExecuteError(null);
+    setExpandedChecks(failedCheckIndexes(request.validation));
+  }, []);
+
+  const selectCapturedRequest = useCallback((request: CapturedRequest, isLast: boolean) => {
+    followLastRequest.current = isLast;
+    showCapturedRequest(request);
+  }, [showCapturedRequest]);
+
+  const handleCapturedRequest = useCallback((request: CapturedRequest) => {
+    if (followLastRequest.current) showCapturedRequest(request);
+    setPartnerResultCount((count) => count + 1);
+    // Later requests update the Results tab without moving away from the tab in use.
+    if (request.sequence === 1) setActiveTab('results');
+  }, [showCapturedRequest]);
+
+  const partnerTest = usePartnerInitiatedTest({
+    manifestInfo, manifestRevision, capability: selectedCapability, toolName: selectedTool,
+    onRequest: handleCapturedRequest,
+  });
+  const { start: startPartnerTest, cancel: cancelPartnerTest, clear: clearPartnerTest } = partnerTest;
+
+  useEffect(() => {
+    setShownRequest(null);
+    followLastRequest.current = true;
+  }, [manifestInfo, manifestRevision, selectedCapability, selectedTool]);
 
   // Load capabilities when manifest is loaded
   useEffect(() => {
@@ -142,7 +173,10 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
       return;
     }
 
-    // Reset state so the form is regenerated even if capability/tool names match
+    // Reset state so the form is regenerated even if capability/tool names match.
+    // Clearing selectedCapability also stops the tools effect from fetching a
+    // capability that may not exist in the new manifest.
+    setSelectedCapability('');
     setTools([]);
     setSelectedTool('');
     setInputValues({});
@@ -153,15 +187,22 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     setInputValidationErrors(null);
     setActiveTab('setup');
 
+    let cancelled = false;
     fetch('/api/manifest/capabilities')
       .then((res) => res.ok ? res.json() : [])
       .then((data: Capability[]) => {
+        if (cancelled) return;
         setCapabilities(data);
         if (data.length > 0) {
           setSelectedCapability(data[0].name);
         }
       })
-      .catch(() => setCapabilities([]));
+      .catch(() => {
+        if (!cancelled) setCapabilities([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [manifestInfo]);
 
   // Clear stale test/validation results whenever the manifest is edited.
@@ -176,24 +217,32 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     setInputValidationErrors(null);
   }, [manifestRevision]);
 
-  // Load tools when capability or manifest changes
+  // Load tools when the selected capability changes. A manifest change clears
+  // selectedCapability first, so this refetches even when the name is reused.
   useEffect(() => {
+    setTools([]);
+    setSelectedTool('');
     if (!selectedCapability) {
-      setTools([]);
-      setSelectedTool('');
       return;
     }
 
+    let cancelled = false;
     fetch(`/api/manifest/capabilities/${encodeURIComponent(selectedCapability)}/tools`)
       .then((res) => res.ok ? res.json() : [])
       .then((data: Tool[]) => {
+        if (cancelled) return;
         setTools(data);
         if (data.length > 0) {
           setSelectedTool(data[0].name);
         }
       })
-      .catch(() => setTools([]));
-  }, [selectedCapability, manifestInfo]);
+      .catch(() => {
+        if (!cancelled) setTools([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCapability]);
 
   // Reset input values when tool changes
   useEffect(() => {
@@ -208,12 +257,16 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   }, [selectedTool, tools]);
 
   const currentTool = tools.find((t) => t.name === selectedTool);
+  const isPartnerInitiated = currentTool?.toolType === PARTNER_INITIATED;
 
   const handleInputChange = useCallback((name: string, value: string) => {
     setInputValues((prev) => ({ ...prev, [name]: value }));
   }, []);
 
   const handleResetInputs = useCallback(() => {
+    clearPartnerTest();
+    followLastRequest.current = true;
+    setShownRequest(null);
     if (currentTool) {
       const defaults: Record<string, string> = {};
       for (const path of getFieldPaths(currentTool.inputs)) {
@@ -226,10 +279,32 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     setExecuteError(null);
     setExpandedChecks(new Set());
     setInputValidationErrors(null);
-  }, [currentTool]);
+  }, [currentTool, clearPartnerTest]);
+
+  /** Run Test for a partnerInitiated tool: captures requests to the simulated endpoint. */
+  const startCapture = useCallback(async () => {
+    setResult(null);
+    setValidationResult(null);
+    setShownRequest(null);
+    followLastRequest.current = true;
+    setExecuteError(null);
+    setExpandedChecks(new Set());
+    setInputValidationErrors(null);
+    await startPartnerTest();
+  }, [startPartnerTest]);
+
+  const handleCaptureToggle = useCallback(() => {
+    if (partnerTest.isActive) void cancelPartnerTest();
+    else void startCapture();
+  }, [partnerTest.isActive, cancelPartnerTest, startCapture]);
 
   const handleRunTest = useCallback(async () => {
     if (!selectedCapability || !selectedTool) return;
+
+    if (currentTool?.toolType === PARTNER_INITIATED) {
+      await startCapture();
+      return;
+    }
 
     // Validate form before executing
     if (formRef.current && !formRef.current.validate()) {
@@ -323,7 +398,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     } finally {
       setIsExecuting(false);
     }
-  }, [selectedCapability, selectedTool, inputValues]);
+  }, [selectedCapability, selectedTool, inputValues, currentTool, startCapture]);
 
   const toggleCheck = useCallback((index: number) => {
     setExpandedChecks((prev) => {
@@ -376,6 +451,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   const selectedCapabilityLabel = selectedCapabilityEntry
     ? selectedCapabilityEntry.displayName ?? selectedCapabilityEntry.name
     : selectedCapability;
+  const partnerRequestsNewestFirst = [...partnerTest.requests].reverse();
 
   return (
     <div className="testing-panel">
@@ -391,6 +467,19 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
         <Tab value="preview">Dragon Copilot Preview</Tab>
       </TabList>
 
+      <PartnerCaptureBar
+        phase={partnerTest.phase}
+        stopped={partnerTest.stopped}
+        count={partnerTest.count}
+        lastRequest={partnerRequestsNewestFirst[0]}
+        shownRequest={shownRequest}
+        onToggle={handleCaptureToggle}
+        onShowLatest={() => {
+          if (partnerRequestsNewestFirst.length > 0) selectCapturedRequest(partnerRequestsNewestFirst[0], true);
+        }}
+      />
+      {partnerTest.error && <div className="execute-error" role="alert">{partnerTest.error}</div>}
+
       <div className="tab-content">
         {activeTab === 'setup' && (
           <div className="setup-tab">
@@ -399,8 +488,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
             </div>
 
             <div className="form-field">
-              <label className="field-label">Capability</label>
+              <label className="field-label" htmlFor={capabilityId}>Capability</label>
               <Dropdown
+                id={capabilityId}
                 value={selectedCapabilityEntry ? selectedCapabilityLabel : ''}
                 selectedOptions={[selectedCapability]}
                 onOptionSelect={(_, data) => {
@@ -418,8 +508,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
             </div>
 
             <div className="form-field">
-              <label className="field-label">Tool</label>
+              <label className="field-label" htmlFor={toolId}>Tool</label>
               <Dropdown
+                id={toolId}
                 value={tools.find(t => t.name === selectedTool)?.name || ''}
                 selectedOptions={[selectedTool]}
                 onOptionSelect={(_, data) => {
@@ -437,14 +528,27 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
               {currentTool && (
                 <p className="field-description">{currentTool.description}</p>
               )}
+              {isPartnerInitiated && (
+                <>
+                  <p className="field-description" role="note">
+                    This tool is partnerInitiated: your service submits draft reports to Dragon Copilot.
+                    Click Run Test to start listening, then send submissions to the simulated endpoint below.
+                    The sandbox shows each one until you stop listening.
+                  </p>
+                  <p className="field-description" role="note">{PARTNER_INITIATED_AUTH_NOTE}</p>
+                  <SimulatedEnvironmentSettings refreshKey={partnerResultCount} />
+                </>
+              )}
             </div>
 
-            <div className="form-field">
-              <label className="field-label">Authentication</label>
-              <AuthSettings />
-            </div>
+            {!isPartnerInitiated && (
+              <div className="form-field">
+                <label className="field-label">Authentication</label>
+                <AuthSettings />
+              </div>
+            )}
 
-            {currentTool && (
+            {currentTool && !isPartnerInitiated && (
               <DynamicForm
                 ref={formRef}
                 inputs={currentTool.inputs}
@@ -456,11 +560,11 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
             <div className="action-bar">
               <Button
                 appearance="primary"
-                icon={<CodeRegular />}
-                onClick={handleRunTest}
-                disabled={isExecuting}
+                icon={isPartnerInitiated && partnerTest.isActive ? <RecordStopRegular /> : <CodeRegular />}
+                onClick={isPartnerInitiated ? handleCaptureToggle : handleRunTest}
+                disabled={isExecuting || !currentTool || partnerTest.phase === 'stopping'}
               >
-                {isExecuting ? 'Running...' : 'Run Test'}
+                {isExecuting ? 'Running...' : isPartnerInitiated && partnerTest.isActive ? 'Stop listening' : 'Run Test'}
               </Button>
               <Button
                 appearance="subtle"
@@ -519,6 +623,37 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
         {activeTab === 'results' && (
           <div className="results-tab">
+            {isPartnerInitiated && partnerRequestsNewestFirst.length > 0 && (
+              <section className="captured-requests" aria-labelledby={capturedRequestsId}>
+                <h3 id={capturedRequestsId} className="captured-requests-title">Requests received</h3>
+                {partnerTest.count > partnerRequestsNewestFirst.length && (
+                  <p className="captured-requests-note">
+                    Showing the last {partnerRequestsNewestFirst.length} of {partnerTest.count} requests.
+                  </p>
+                )}
+                <ul className="captured-requests-list">
+                  {partnerRequestsNewestFirst.map((request) => {
+                    const selected = request.sequence === shownRequest?.sequence;
+                    return (
+                      <li key={request.sequence}>
+                        <button
+                          type="button"
+                          className={`captured-request${selected ? ' selected' : ''}`}
+                          aria-current={selected ? 'true' : undefined}
+                          onClick={() => selectCapturedRequest(request, request.sequence === partnerRequestsNewestFirst[0].sequence)}
+                        >
+                          <span className="captured-request-sequence">#{request.sequence}</span>
+                          <span>{formatReceivedTime(request.receivedAt)}</span>
+                          <span className={request.validation.valid ? 'captured-request-pass' : 'captured-request-fail'}>
+                            {describeOutcome(request)}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
             {(result || executeError) ? (
               <div className="validation-results">
                 {/* Tool context card */}
@@ -533,8 +668,10 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                       <div className="tool-context-value">{selectedTool}</div>
                     </div>
                     <div>
-                      <div className="tool-context-label">Execution Time</div>
-                      <div className="tool-context-value">{executionTimeMs} ms</div>
+                      <div className="tool-context-label">{shownRequest ? 'Received' : 'Execution Time'}</div>
+                      <div className="tool-context-value">
+                        {shownRequest ? formatReceivedTime(shownRequest.receivedAt) : `${executionTimeMs} ms`}
+                      </div>
                     </div>
                     {result && (
                       <div>
@@ -561,8 +698,10 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                     {/* Summary */}
                     <p className="validation-summary">
                       {validationResult.valid
-                        ? `All ${validationResult.summary.passed} checks passed — response matches the expected schema.`
-                        : `${validationResult.summary.failed} of ${validationResult.summary.passed + validationResult.summary.failed} checks failed — ${validationResult.checks.filter(c => !c.passed).map(c => c.error || c.check).join('; ')}`}
+                        ? `All ${validationResult.summary.passed} checks passed — ${shownRequest ? 'the draft report was stored' : 'response matches the expected schema'}.`
+                        : `${validationResult.summary.failed} of ${validationResult.summary.passed + validationResult.summary.failed} checks failed — ${shownRequest
+                          ? `${describeOutcome(shownRequest)}.`
+                          : validationResult.checks.filter(c => !c.passed).map(c => c.error || c.check).join('; ')}`}
                     </p>
 
                     {/* Check list */}
@@ -644,14 +783,16 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
                 {/* Action buttons */}
                 <div className="validation-actions">
-                  <Button
-                    appearance="primary"
-                    icon={<CodeRegular />}
-                    onClick={handleRunTest}
-                    disabled={isExecuting}
-                  >
-                    Re-run Execution
-                  </Button>
+                  {!isPartnerInitiated && (
+                    <Button
+                      appearance="primary"
+                      icon={<CodeRegular />}
+                      onClick={handleRunTest}
+                      disabled={isExecuting || !currentTool}
+                    >
+                      Re-run Execution
+                    </Button>
+                  )}
                   <Button
                     appearance="secondary"
                     icon={<CopyRegular />}
@@ -671,7 +812,13 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                 )}
               </div>
             ) : (
-              <p className="results-empty">No results yet. Run a test from the Setup tab.</p>
+              <p className="results-empty">
+                {!isPartnerInitiated
+                  ? 'No results yet. Run a test from the Setup tab.'
+                  : partnerTest.isActive
+                    ? 'No requests yet. Send one to the endpoint shown in the Setup tab.'
+                    : 'No requests yet. Click Run Test, then send a request to the endpoint.'}
+              </p>
             )}
 
             {/* Copy-to-clipboard toast */}
@@ -681,10 +828,32 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
         {activeTab === 'outputs' && (
           <div className="outputs-tab">
-            {result && currentTool ? (
+            {shownRequest ? (
+              <div className="outputs-display">
+                <h3 className="outputs-section-title">Received Request Payload</h3>
+                <div className="request-method-badge">POST {new URL(shownRequest.path, window.location.origin).href}</div>
+                <pre className="dark-code-block">
+                  {shownRequest.rawBody === undefined
+                    ? 'No request body'
+                    : typeof shownRequest.rawBody === 'string' ? shownRequest.rawBody : JSON.stringify(shownRequest.rawBody, null, 2)}
+                </pre>
+
+                <h3 className="outputs-section-title">Endpoint Response</h3>
+                <pre className="dark-code-block">
+                  {[
+                    `HTTP ${shownRequest.status} ${shownRequest.statusText}`.trim(),
+                    ...Object.entries(shownRequest.headers ?? {}).map(([name, value]) => `${name}: ${value}`),
+                    '',
+                    shownRequest.responseBody === undefined
+                      ? '(no body)'
+                      : JSON.stringify(shownRequest.responseBody, null, 2),
+                  ].join('\n')}
+                </pre>
+              </div>
+            ) : result && currentTool ? (
               <div className="outputs-display">
                 <h3 className="outputs-section-title">Request Payload</h3>
-                <div className="request-method-badge">POST {currentTool.endpoint}</div>
+                <div className="request-method-badge">POST {currentTool.endpoint ?? '(no endpoint)'}</div>
                 <pre className="dark-code-block">
                   {result.sentRequest
                     ? JSON.stringify(result.sentRequest, null, 2)
@@ -725,10 +894,12 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
         {activeTab === 'preview' && (
           <div className="preview-tab">
             <DragonCopilotPreview
+              toolType={currentTool?.toolType}
               result={result}
-              executionError={executeError}
+              executionError={isPartnerInitiated && partnerTest.error && !result ? { message: partnerTest.error } : executeError}
               toolName={selectedTool || undefined}
               extensionName={manifestInfo.name}
+              listening={isPartnerInitiated && partnerTest.isActive}
             />
           </div>
         )}

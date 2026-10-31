@@ -6,14 +6,17 @@
  * manifest can never mutate the shared definition (which matters for the
  * long-lived Extensions Sandbox server process).
  */
-import type { TemplateConfig } from './types.js';
+import type { TemplateConfig, ToolType } from './types.js';
 import {
   DEFAULT_CAPABILITY,
   DEFAULT_OUTPUT_CONTENT_TYPE,
   DEFAULT_PAYLOAD_SCHEMA_VERSION,
   DEFAULT_TOOL_TYPE,
   DRAFT_REPORT_CONTENT_TYPE,
+  DRAFT_REPORT_OUTPUT_DEFAULTS,
+  PARTNER_INITIATED_TOOL_TYPE,
   PATIENT_INFORMATION_CONTENT_TYPE,
+  PRE_DRAFT_REPORT_GENERATION_CAPABILITY,
   REPORT_CONTENT_TYPE,
   getInputDescription,
 } from './choices.js';
@@ -62,19 +65,19 @@ const templates: Record<string, TemplateConfig> = {
   },
   'pre-draft-report': {
     name: 'sampleRadiologyExtension',
-    description: 'Extension to provide pre-draft radiology report generation',
+    description: 'Extension to provide draft radiology report generation',
     version: '0.0.1',
     radiologistsExtensibilityApiVersion: '1.0.0',
     tools: [
       {
         name: 'preDraftReportGeneratorTool',
-        toolType: 'partnerInitiated',
-        capability: 'preDraftReportGeneration',
-        description: 'Tool to generate a pre-draft radiology report',
+        toolType: PARTNER_INITIATED_TOOL_TYPE,
+        capability: PRE_DRAFT_REPORT_GENERATION_CAPABILITY,
+        description: 'Tool to generate a draft radiology report',
         outputs: [
           {
-            name: 'preDraftReportResult',
-            description: 'Pre-draft radiology report',
+            name: DRAFT_REPORT_OUTPUT_DEFAULTS.name,
+            description: DRAFT_REPORT_OUTPUT_DEFAULTS.description,
             'content-type': DRAFT_REPORT_CONTENT_TYPE,
             schemaVersion: DEFAULT_PAYLOAD_SCHEMA_VERSION
           }
@@ -98,6 +101,8 @@ export interface TemplateSummary {
   description: string;
   version: string;
   toolCount: number;
+  /** Distinct tool types the template's tools use, in first-seen order. */
+  toolTypes: ToolType[];
 }
 
 /**
@@ -138,5 +143,8 @@ export function listTemplateSummaries(): TemplateSummary[] {
     description: template.description,
     version: template.version,
     toolCount: template.tools.length,
+    toolTypes: template.tools
+      .map((tool) => tool.toolType)
+      .filter((toolType, index, all) => all.indexOf(toolType) === index),
   }));
 }

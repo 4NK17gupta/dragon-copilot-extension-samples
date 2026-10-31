@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { sessionStore } from '../store/session.js';
 import { parseCapabilities } from '../utils/capabilities-parser.js';
 import type { ExtensionManifest } from '../schemas/manifest.schema.js';
@@ -31,6 +33,20 @@ const baseTool = {
 };
 
 describe('Capabilities Parser', () => {
+  it('labels draft report generation and counts every supporting tool', () => {
+    const manifest: ExtensionManifest = JSON.parse(readFileSync(
+      new URL('./fixtures/valid-manifest-partner-initiated.json', import.meta.url), 'utf-8',
+    ));
+    manifest.tools.push({ ...manifest.tools[0], name: 'secondPreDraftTool' });
+
+    expect(parseCapabilities(manifest)).toEqual([{
+      name: 'preDraftReportGeneration',
+      displayName: 'Draft Report Generation',
+      description: 'Draft Report Generation capability',
+      toolCount: 2,
+    }]);
+  });
+
   beforeEach(() => {
     sessionStore.clear();
   });
@@ -163,5 +179,29 @@ describe('Capabilities Parser', () => {
 
     const capabilities = parseCapabilities(manifest);
     expect(capabilities[0].description).toBe('ALLCAPS capability');
+  });
+
+  it('should report both capabilities for the mixed contractBased + partnerInitiated sample fixture', () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(__dirname, 'fixtures', 'valid-manifest-mixed-tool-types.json'), 'utf-8'),
+    ) as ExtensionManifest;
+
+    sessionStore.setManifest(manifest);
+    const capabilities = parseCapabilities(sessionStore.getManifest()!);
+
+    expect(capabilities).toEqual([
+      {
+        name: 'qualityCheck',
+        displayName: 'Report Optimization',
+        description: 'Report Optimization capability',
+        toolCount: 1,
+      },
+      {
+        name: 'preDraftReportGeneration',
+        displayName: 'Draft Report Generation',
+        description: 'Draft Report Generation capability',
+        toolCount: 1,
+      },
+    ]);
   });
 });

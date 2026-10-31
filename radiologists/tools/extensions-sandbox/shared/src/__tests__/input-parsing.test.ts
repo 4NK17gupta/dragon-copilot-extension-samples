@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseInputValues, groupInputsByName, parseAndGroupInputs } from '../input-parsing.js';
+import {
+  InvalidInputError, parseInputValues, groupInputsByName, parseAndGroupInputs,
+} from '../input-parsing.js';
 
 /**
  * Unit tests for form input parsing and grouping.
@@ -105,5 +107,43 @@ describe('parseAndGroupInputs', () => {
     });
     expect(result).toEqual({ report: { reportText: 'findings' } });
     expect('priorReport' in result).toBe(false);
+  });
+});
+
+describe('unsafe inputs', () => {
+  it.each([
+    ['null', null],
+    ['an array', ['report']],
+    ['a string', 'report'],
+  ])('rejects inputs that are %s', (_label, inputs) => {
+    expect(() => parseAndGroupInputs(inputs as unknown as Record<string, string>))
+      .toThrow(InvalidInputError);
+  });
+
+  it.each([
+    ['a number', 42],
+    ['an object', { reportText: 'findings' }],
+    ['null', null],
+  ])('rejects a value that is %s instead of crashing', (_label, value) => {
+    expect(() => parseAndGroupInputs({ report: value } as unknown as Record<string, string>))
+      .toThrow("Input 'report' must be a string.");
+  });
+
+  it.each([
+    '__proto__.polluted',
+    'constructor.prototype.polluted',
+    'report.__proto__',
+    '__proto__',
+  ])('rejects the reserved name %s without changing Object.prototype', (name) => {
+    // A computed key creates an own "__proto__" property, as JSON.parse does for a request body.
+    const inputs: Record<string, string> = { [name]: '{"x":"yes"}' };
+    expect(() => parseAndGroupInputs(inputs)).toThrow(InvalidInputError);
+    expect(() => groupInputsByName(inputs)).toThrow(InvalidInputError);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(({} as Record<string, unknown>).x).toBeUndefined();
+  });
+
+  it('groups an input named after an Object.prototype member as an ordinary field', () => {
+    expect(groupInputsByName({ 'toString.value': 'a' })).toEqual({ toString: { value: 'a' } });
   });
 });
