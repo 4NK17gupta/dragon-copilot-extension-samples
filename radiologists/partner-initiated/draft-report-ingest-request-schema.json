@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "DraftReportIngestRequest",
-  "description": "Request body a partnerInitiated tool posts to submit a draft report. The customer tenant and environment are taken from the route, not from this body, and the submitting Partner is identified from the access token rather than declared here.",
+  "description": "Request body a partnerInitiated tool posts to submit a pre-draft report. The customer tenant and environment are taken from the route, not from this body, and the submitting Partner is identified from the access token rather than declared here.",
   "type": "object",
   "required": [
     "manifestName",
@@ -63,7 +63,7 @@
           "$ref": "draft-report-schema.json"
         }
       ],
-      "description": "The draft report payload."
+      "description": "The pre-draft report payload."
     }
   },
   "dependencies": {
@@ -79,6 +79,5 @@
       "publisherId",
       "offerId"
     ]
-  },
-  "additionalProperties": false
+  }
 }

@@ -39,7 +39,8 @@ One `partnerInitiated` variant lives under `radiologists/src/samples/PartnerInit
 
 Each samples folder has its own `extension.yaml` declaring only the tools that folder implements. `radiologists/manifest/extension.yaml` is the reference manifest showing every field and both tool types; it is not wired to a sample.
 
-For `partnerInitiated` work, use the contract in `radiologists/partner-initiated/` (`README.md`, the schemas, the example payloads in `samples/` and `authentication.md`) and the `PartnerInitiated/` models. The console sample's `Simulation/` folder mirrors the real submission endpoint: its validation rules, the order in which it resolves the environment, extension, tool, stored identifier and order, and its status codes, `reason` values and response bodies. Keep it in step with `radiologists/partner-initiated/README.md` when either changes. It deliberately simplifies authentication and only checks that a bearer token is present. The shared `doc/` authentication guides don't apply to it.
+For `partnerInitiated` work, use the contract in `radiologists/partner-initiated/` (`README.md`, the schemas, the example payloads in `samples/` and `authentication.md`) and the `PartnerInitiated/` models. The console sample's `Simulation/` folder mirrors the real submission endpoint: its validation rules, the order in which it resolves the environment, extension, tool, stored identifier and order, and its status codes, `reason` values and response bodies. Keep it in step with `radiologists/partner-initiated/README.md` when either changes. It deliberately simplifies authentication and only checks that a bearer token is present.
+
 ## Stack facts (`contractBased` samples)
 
 - C# target framework: `net10.0` (Quickstart and Ai, cross-platform), `net10.0-windows10.0.26100` (Foundry Local, due to the Foundry Local dependency).

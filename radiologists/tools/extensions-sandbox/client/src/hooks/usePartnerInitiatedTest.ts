@@ -1,23 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { PartnerInitiatedResult } from '../types/testing';
+import type { CapturedRequest } from '../types/testing';
 
-type Phase = 'idle' | 'starting' | 'waiting' | 'stopping';
+/** The most requests the sandbox keeps for a capture. */
+export const MAX_CAPTURED_REQUESTS = 20;
+const POLL_INTERVAL_MS = 1000;
+const RUNS_PATH = '/api/manifest/partner-initiated';
 
-interface Operation {
-  cancelled: boolean;
-  startedAt: number;
+export type CapturePhase = 'idle' | 'starting' | 'capturing' | 'stopping';
+
+interface Capture {
+  /** Set once the capture is ending, so late responses are ignored. */
+  ended: boolean;
+  /** Whether the sandbox shows that capturing stopped once the capture has ended. */
+  showStopped: boolean;
   runId?: string;
-  callbackUrl?: string;
+  lastSequence: number;
   timer?: ReturnType<typeof setTimeout>;
   pollController?: AbortController;
   stopping?: Promise<void>;
 }
 
-interface RunStatus {
-  runId: string;
-  callbackPath: string;
-  status: 'waiting' | 'completed';
-  result?: PartnerInitiatedResult;
+interface CaptureResponse {
+  runId?: string;
+  status?: string;
+  count?: number;
+  requests?: CapturedRequest[];
   error?: string;
 }
 
@@ -26,67 +33,95 @@ interface Options {
   manifestRevision: number;
   capability: string;
   toolName: string;
-  onComplete: (result: PartnerInitiatedResult, elapsedMs: number, callbackUrl: string) => void;
+  /** Called for each request the sandbox answers while capturing, oldest first. */
+  onRequest: (request: CapturedRequest) => void;
 }
 
-export function usePartnerInitiatedTest({
-  manifestInfo, manifestRevision, capability, toolName, onComplete,
-}: Options) {
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [callbackUrl, setCallbackUrl] = useState<string | null>(null);
+const capturePath = (runId: string) => `${RUNS_PATH}/${encodeURIComponent(runId)}`;
+const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
+
+async function readCapture(response: Response): Promise<CaptureResponse> {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Run Test for partnerInitiated tools. A capture opens the sandbox's simulated Dragon Copilot
+ * endpoint, which answers requests only while a capture is open, and reports every request it answers.
+ * A new manifest or tool, Reset Inputs, or leaving the page ends the capture.
+ */
+export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capability, toolName, onRequest }: Options) {
+  const [phase, setPhase] = useState<CapturePhase>('idle');
+  const [stopped, setStopped] = useState(false);
+  const [count, setCount] = useState(0);
+  const [requests, setRequests] = useState<CapturedRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const active = useRef<Operation | null>(null);
+  const active = useRef<Capture | null>(null);
   const mounted = useRef(true);
+  const onRequestRef = useRef(onRequest);
+
+  useEffect(() => {
+    onRequestRef.current = onRequest;
+  }, [onRequest]);
 
   const reportError = useCallback((message: string) => {
     if (mounted.current) setError(message);
     else console.error(message);
   }, []);
 
-  const release = useCallback((operation: Operation) => {
-    clearTimeout(operation.timer);
-    operation.pollController?.abort();
-    if (active.current !== operation) return;
+  const release = useCallback((capture: Capture) => {
+    clearTimeout(capture.timer);
+    capture.pollController?.abort();
+    if (active.current !== capture) return;
     active.current = null;
     if (mounted.current) {
       setPhase('idle');
-      setCallbackUrl(null);
+      if (capture.showStopped) setStopped(true);
     }
   }, []);
 
-  const stop = useCallback((operation: Operation): Promise<void> => {
-    if (operation.stopping) return operation.stopping;
-    operation.stopping = (async () => {
+  const stopOnServer = useCallback((capture: Capture): Promise<void> => {
+    capture.stopping ??= (async () => {
       try {
-        const response = await fetch(`/api/manifest/partner-initiated/${encodeURIComponent(operation.runId!)}`, {
-          method: 'DELETE',
-          keepalive: true,
-        });
+        const response = await fetch(capturePath(capture.runId!), { method: 'DELETE', keepalive: true });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
       } catch (cause) {
-        reportError(`Could not stop the partner-initiated listener; it may still be listening. ${
-          cause instanceof Error ? cause.message : String(cause)
-        }`);
+        reportError(`Could not stop listening; the sandbox may still answer requests. ${messageOf(cause)}`);
       } finally {
-        release(operation);
+        release(capture);
       }
     })();
-    return operation.stopping;
+    return capture.stopping;
   }, [release, reportError]);
 
+  /** Ends a capture. A pending start finishes first, so that its capture is stopped too. */
+  const end = useCallback(async (capture: Capture, showStopped: boolean) => {
+    capture.showStopped = (capture.ended ? capture.showStopped : true) && showStopped;
+    capture.ended = true;
+    clearTimeout(capture.timer);
+    capture.pollController?.abort();
+    if (mounted.current && active.current === capture) setPhase('stopping');
+    if (capture.runId) await stopOnServer(capture);
+  }, [stopOnServer]);
+
+  /** Stop capturing: the endpoint answers 503 until the next start. */
   const cancel = useCallback(async () => {
-    const operation = active.current;
-    if (!operation) return;
-    operation.cancelled = true;
-    clearTimeout(operation.timer);
-    operation.pollController?.abort();
-    if (mounted.current) {
-      setPhase('stopping');
-      setCallbackUrl(null);
-    }
-    // A pending start must finish so its run ID can be cancelled on the server.
-    if (operation.runId) await stop(operation);
-  }, [stop]);
+    const capture = active.current;
+    if (capture) await end(capture, true);
+  }, [end]);
+
+  /** Ends any capture and forgets its requests. */
+  const clear = useCallback(() => {
+    const capture = active.current;
+    if (capture) void end(capture, false);
+    setStopped(false);
+    setRequests([]);
+    setCount(0);
+    setError(null);
+  }, [end]);
 
   useEffect(() => {
     mounted.current = true;
@@ -94,74 +129,103 @@ export function usePartnerInitiatedTest({
   }, []);
 
   useEffect(() => {
+    setStopped(false);
+    setRequests([]);
+    setCount(0);
     setError(null);
-    return () => { void cancel(); };
-  }, [manifestInfo, manifestRevision, capability, toolName, cancel]);
+    return () => {
+      const capture = active.current;
+      if (capture) void end(capture, false);
+    };
+  }, [manifestInfo, manifestRevision, capability, toolName, end]);
+
+  useEffect(() => {
+    const handlePageHide = () => {
+      const capture = active.current;
+      if (capture) void end(capture, true);
+    };
+    window.addEventListener('pagehide', handlePageHide);
+    return () => window.removeEventListener('pagehide', handlePageHide);
+  }, [end]);
 
   const start = useCallback(async () => {
     if (active.current) return;
-    const operation: Operation = { cancelled: false, startedAt: performance.now() };
-    active.current = operation;
+    const capture: Capture = { ended: false, showStopped: true, lastSequence: 0 };
+    active.current = capture;
     setError(null);
+    setStopped(false);
+    setRequests([]);
+    setCount(0);
     setPhase('starting');
 
     const poll = async (): Promise<void> => {
-      if (operation.cancelled) return;
-      operation.pollController = new AbortController();
+      if (capture.ended) return;
+      capture.pollController = new AbortController();
       try {
-        const response = await fetch(`/api/manifest/partner-initiated/${encodeURIComponent(operation.runId!)}`, {
-          signal: operation.pollController.signal,
+        const response = await fetch(`${capturePath(capture.runId!)}?after=${capture.lastSequence}`, {
+          signal: capture.pollController.signal,
           cache: 'no-store',
         });
-        const data: RunStatus = await response.json();
-        if (operation.cancelled) return;
+        const data = await readCapture(response);
+        if (capture.ended) return;
         if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-        if (data.status === 'completed' && data.result) {
-          release(operation);
-          onComplete(data.result, Math.round(performance.now() - operation.startedAt), operation.callbackUrl!);
-        } else if (data.status === 'waiting') {
-          operation.timer = setTimeout(() => { void poll(); }, 1000);
-        } else {
-          throw new Error('The sandbox returned an invalid listener status.');
+        if (data.status !== 'capturing' || !Array.isArray(data.requests) || typeof data.count !== 'number') {
+          throw new Error('The sandbox returned an invalid run.');
         }
+        const received = data.requests.filter((request) => request.sequence > capture.lastSequence);
+        if (received.length > 0) {
+          capture.lastSequence = Math.max(...received.map((request) => request.sequence));
+          setRequests((current) => [...current, ...received].slice(-MAX_CAPTURED_REQUESTS));
+          for (const request of received) onRequestRef.current(request);
+        }
+        setCount(data.count);
+        capture.timer = setTimeout(() => { void poll(); }, POLL_INTERVAL_MS);
       } catch (cause) {
-        if (operation.cancelled) return;
-        reportError(`Could not retrieve the partner-initiated test result. ${
-          cause instanceof Error ? cause.message : String(cause)
-        }`);
-        operation.cancelled = true;
-        await stop(operation);
+        if (capture.ended) return;
+        reportError(`Stopped listening. ${messageOf(cause)}`);
+        await end(capture, true);
       }
     };
 
     try {
-      const response = await fetch('/api/manifest/partner-initiated/start', {
+      const response = await fetch(`${RUNS_PATH}/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ capability, tool: toolName }),
       });
-      const data: RunStatus = await response.json();
+      const data = await readCapture(response);
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      if (!data.runId || !data.callbackPath) throw new Error('The sandbox did not return a listener URL.');
-      operation.runId = data.runId;
-      operation.callbackUrl = new URL(data.callbackPath, window.location.origin).href;
-      if (operation.cancelled) {
-        await stop(operation);
+      if (!data.runId) throw new Error('The sandbox did not return a run.');
+      capture.runId = data.runId;
+      if (capture.ended) {
+        await stopOnServer(capture);
         return;
       }
-      setCallbackUrl(operation.callbackUrl);
-      setPhase('waiting');
-      void poll();
+      setPhase('capturing');
+      capture.timer = setTimeout(() => { void poll(); }, POLL_INTERVAL_MS);
     } catch (cause) {
-      if (!operation.cancelled) {
-        reportError(`Could not start the partner-initiated listener. ${
-          cause instanceof Error ? cause.message : String(cause)
-        }`);
+      if (!capture.ended) {
+        reportError(`Could not start listening. ${messageOf(cause)}`);
+        capture.ended = true;
+        capture.showStopped = false;
       }
-      if (operation.runId) await stop(operation);
-      else release(operation);
+      if (capture.runId) await stopOnServer(capture);
+      else release(capture);
     }
-  }, [capability, toolName, onComplete, release, reportError, stop]);
+  }, [capability, toolName, end, release, reportError, stopOnServer]);
 
-  return { phase, isActive: phase !== 'idle', callbackUrl, error, start, cancel };
+  return {
+    phase,
+    isActive: phase !== 'idle',
+    /** True after a capture stopped, until the next start, Reset Inputs, or a new manifest or tool. */
+    stopped,
+    /** How many requests the capture has answered, including any no longer kept. */
+    count,
+    /** The capture's last {@link MAX_CAPTURED_REQUESTS} requests, oldest first. */
+    requests,
+    error,
+    start,
+    cancel,
+    clear,
+  };
 }

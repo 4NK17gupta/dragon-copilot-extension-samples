@@ -38,6 +38,8 @@ export interface DragonCopilotPreviewProps {
    * Shown instead of the not-run state so a failed run never reads as "no run".
    */
   executionError?: { message: string } | null;
+  /** Whether the sandbox is listening for submissions to a partnerInitiated tool. */
+  listening?: boolean;
 }
 
 export function DragonCopilotPreview({ toolType, ...props }: DragonCopilotPreviewProps) {
@@ -49,6 +51,7 @@ export function DragonCopilotPreview({ toolType, ...props }: DragonCopilotPrevie
 function PartnerInitiatedPreview({
   result,
   executionError,
+  listening = false,
 }: Omit<DragonCopilotPreviewProps, 'toolType'>) {
   const titleId = useId();
   const model = useMemo(() => buildDraftReportPreview(result), [result]);
@@ -64,7 +67,9 @@ function PartnerInitiatedPreview({
         <>
           {!report && (
             <p className="dc-preview-message dc-preview-message-info" role="status">
-              No draft report received yet. Run Test from the Setup tab, then POST the raw draft report or the full ingest envelope to the displayed URL.
+              {listening
+                ? 'No draft report received yet. Send a submission to the endpoint shown in the Setup tab.'
+                : 'No draft report received yet. Click Run Test, then send a submission to the endpoint shown in the Setup tab.'}
             </p>
           )}
           {report && !hasContent && (

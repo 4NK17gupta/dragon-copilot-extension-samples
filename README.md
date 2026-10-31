@@ -79,7 +79,7 @@ schedule, such as an AI generated pre-draft report:
 
 ```bash
 dragon-copilot radiologists init                                  # Initialize a new extension project (interactive)
-dragon-copilot radiologists generate --template quality-check     # Generate a quality check manifest (or use --interactive)
+dragon-copilot radiologists generate --template quality-check     # Generate a quality check manifest
 dragon-copilot radiologists generate --template pre-draft-report  # Generate a pre-draft report manifest
 dragon-copilot radiologists validate ./extension.yaml             # Validate extension manifest
 dragon-copilot radiologists package                               # Package for distribution

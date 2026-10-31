@@ -1,7 +1,4 @@
-using System.Net;
-using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Identity.Client;
 using PreDraftReport.Console.QuickStart.Authentication;
 using Xunit;
 
@@ -100,215 +97,54 @@ public sealed class ProgramTests : IDisposable
         var exitCode = await RunAsync(ShippedSettings(), WritePayload("{ not json"));
 
         Assert.Equal(1, exitCode);
-        Assert.Contains("Payload is not a valid draft report ingest request", Output, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("aiGenerated")]
-    [InlineData("aiConfidence")]
-    [InlineData("sectionOrder")]
-    public async Task APayloadMissingARequiredSectionValueFailsInsteadOfSendingADefault(string property)
-    {
-        var payload = await BundledPayloadAsync();
-        payload["draftReport"]!["reportContent"]!["structuredReport"]!["sections"]![0]!.AsObject().Remove(property);
-
-        var exitCode = await RunAsync(ShippedSettings(), WritePayload(payload.ToJsonString()));
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("Payload is not a valid draft report ingest request", Output, StringComparison.Ordinal);
-        Assert.Contains($"'{property}'", Output, StringComparison.Ordinal);
-        Assert.DoesNotContain("Submitting", Output, StringComparison.Ordinal);
+        Assert.Contains("Payload could not be read", Output, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task APayloadMissingTheImageQualityScoreFailsInsteadOfSendingADefault()
+    public async Task APayloadMissingARequiredValueFailsInsteadOfSendingADefault()
     {
-        var payload = await BundledPayloadAsync();
-        payload["draftReport"]!["qualityMetrics"]!.AsObject().Remove("imageQualityScore");
-
-        var exitCode = await RunAsync(ShippedSettings(), WritePayload(payload.ToJsonString()));
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("'imageQualityScore'", Output, StringComparison.Ordinal);
-        Assert.DoesNotContain("Submitting", Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task APayloadMissingTheSectionsFailsInsteadOfSendingAnEmptyList()
-    {
-        var payload = await BundledPayloadAsync();
-        payload["draftReport"]!["reportContent"]!["structuredReport"]!.AsObject().Remove("sections");
-
-        var exitCode = await RunAsync(ShippedSettings(), WritePayload(payload.ToJsonString()));
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("Payload is not a valid draft report ingest request", Output, StringComparison.Ordinal);
-        Assert.Contains("'sections'", Output, StringComparison.Ordinal);
-        Assert.DoesNotContain("Submitting", Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task APayloadWithAMisspelledPropertyFailsInsteadOfDroppingIt()
-    {
-        var payload = await BundledPayloadAsync();
-        var draftReport = payload["draftReport"]!.AsObject();
-        var qualityMetrics = draftReport["qualityMetrics"];
-        draftReport.Remove("qualityMetrics");
-        draftReport["qualityMetric"] = qualityMetrics;
-
-        var exitCode = await RunAsync(ShippedSettings(), WritePayload(payload.ToJsonString()));
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("Payload is not a valid draft report ingest request", Output, StringComparison.Ordinal);
-        Assert.Contains("'qualityMetric'", Output, StringComparison.Ordinal);
-        Assert.Contains("$.draftReport.qualityMetric", Output, StringComparison.Ordinal);
-        Assert.DoesNotContain("Submitting", Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task APayloadWithoutADraftReportIsSubmittedAndRejectedByTheEndpoint()
-    {
-        var payload = await BundledPayloadAsync();
-        payload.Remove("draftReport");
-
-        var exitCode = await RunAsync(ShippedSettings(), WritePayload(payload.ToJsonString()));
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("400 BadRequest", Output, StringComparison.Ordinal);
-        Assert.Contains("  DraftReport: The DraftReport field is required.", Output, StringComparison.Ordinal);
-        Assert.Contains("  traceId: ", Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task TheOutputLeavesOutTheAccessionNumbersAndTheIdentifier()
-    {
-        var settings = ShippedSettings();
-        var payload = await BundledPayloadAsync();
-        var accessionNumber = payload["draftReport"]!["imagingStudy"]!["accessionNumber"]!.GetValue<string>();
-        var identifier = payload["draftReport"]!["identifier"]!.GetValue<string>();
-
-        await RunAsync(settings, BundledPayload);
-        var exitCode = await RunAsync(settings, BundledPayload);
-
-        Assert.Equal(0, exitCode);
-        Assert.Contains("Orders:          1", Output, StringComparison.Ordinal);
-        Assert.Contains("200 OK", Output, StringComparison.Ordinal);
-        Assert.Contains("409 Conflict, reason ResultAlreadyStored", Output, StringComparison.Ordinal);
-        Assert.DoesNotContain(accessionNumber, Output, StringComparison.Ordinal);
-        Assert.DoesNotContain(identifier, Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task AnErrorResponseIsReportedByItsFieldsRatherThanItsBody()
-    {
+        // Without [JsonRequired], a missing aiGenerated would load as false and be submitted.
         var bundled = await File.ReadAllTextAsync(BundledPayload);
-        var payload = WritePayload(bundled.Replace("ACC-0000001", "ACC-DOES-NOT-EXIST", StringComparison.Ordinal));
+        var payload = WritePayload(bundled.Replace("\"aiGenerated\": true,", string.Empty, StringComparison.Ordinal));
 
         var exitCode = await RunAsync(ShippedSettings(), payload);
 
         Assert.Equal(1, exitCode);
-        Assert.Contains("  Resource not found.", Output, StringComparison.Ordinal);
-        Assert.DoesNotContain("ACC-DOES-NOT-EXIST", Output, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"message\"", Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task AnErrorResponseThatIsNotJsonIsNotPrinted()
-    {
-        var exitCode = await RunWithHandlerAsync(
-            ShippedSettings(),
-            _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)
-            {
-                Content = new StringContent("Accession ACC-0000001 failed"),
-            }),
-            CancellationToken.None);
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("500 InternalServerError", Output, StringComparison.Ordinal);
-        Assert.Contains("The response body isn't JSON, so it isn't shown.", Output, StringComparison.Ordinal);
-        Assert.DoesNotContain("ACC-0000001", Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task AnEnvironmentThatCannotBeSetUpFails()
-    {
-        var settings = ShippedSettings();
-        settings.Simulation.StoredResultsPath = "stored\0results.txt";
-
-        var exitCode = await RunAsync(settings, BundledPayload);
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("Could not set up the simulated environment", Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ATokenThatCannotBeAcquiredFails()
-    {
-        var exitCode = await RunAsync(ShippedSettings(), BundledPayload, new FailingTokenProvider());
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("Could not acquire an access token. invalid_client: The client secret is not valid.", Output, StringComparison.Ordinal);
+        Assert.Contains("Payload could not be read", Output, StringComparison.Ordinal);
+        Assert.Contains("'aiGenerated'", Output, StringComparison.Ordinal);
         Assert.DoesNotContain("Submitting", Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ARequestThatFailsIsReported()
-    {
-        var exitCode = await RunWithHandlerAsync(
-            ShippedSettings(),
-            _ => throw new HttpRequestException("No such host is known."),
-            CancellationToken.None);
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("The request failed: No such host is known.", Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ARequestWithNoResponseTimesOut()
-    {
-        var settings = ShippedSettings();
-        settings.DragonCopilot.TimeoutSeconds = 1;
-
-        var exitCode = await RunWithHandlerAsync(settings, NeverRespondAsync, CancellationToken.None);
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("No response within 1 seconds.", Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ARunCancelledBeforeItStartsReportsCancelled()
-    {
-        using var cancellation = new CancellationTokenSource();
-        await cancellation.CancelAsync();
-
-        var exitCode = await Program.RunAsync(ShippedSettings(), BundledPayload, AppContext.BaseDirectory, _output, null, cancellation.Token);
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("Cancelled.", Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ARunCancelledWhileWaitingForAResponseReportsCancelled()
-    {
-        using var cancellation = new CancellationTokenSource();
-        var exitCode = await RunWithHandlerAsync(
-            ShippedSettings(),
-            async cancellationToken =>
-            {
-                await cancellation.CancelAsync();
-                return await NeverRespondAsync(cancellationToken);
-            },
-            cancellation.Token);
-
-        Assert.Equal(1, exitCode);
-        Assert.Contains("Cancelled.", Output, StringComparison.Ordinal);
-        Assert.DoesNotContain("No response within", Output, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task MainThrowsWhenArgsIsNull()
     {
         await Assert.ThrowsAsync<ArgumentNullException>(() => Program.Main(null!));
+    }
+
+    [Fact]
+    public async Task CancellingWhileTheReportIsSubmittedExitsCleanly()
+    {
+        using var cancellation = new CancellationTokenSource();
+
+        var exitCode = await Program.RunAsync(
+            ShippedSettings(), BundledPayload, AppContext.BaseDirectory, _output, new CancellingTokenProvider(cancellation), cancellation.Token);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Submitting", Output, StringComparison.Ordinal);
+        Assert.EndsWith("Cancelled.", Output.TrimEnd(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CancellingWhileThePayloadLoadsExitsCleanly()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var exitCode = await Program.RunAsync(
+            ShippedSettings(), BundledPayload, AppContext.BaseDirectory, _output, null, cancellation.Token);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal("Cancelled.", Output.Trim());
     }
 
     private SampleSettings ShippedSettings()
@@ -334,42 +170,20 @@ public sealed class ProgramTests : IDisposable
     private Task<int> RunAsync(SampleSettings settings, string payloadPath, ITokenProvider? tokenProvider = null) =>
         Program.RunAsync(settings, payloadPath, AppContext.BaseDirectory, _output, tokenProvider, CancellationToken.None);
 
-    private Task<int> RunWithHandlerAsync(
-        SampleSettings settings,
-        Func<CancellationToken, Task<HttpResponseMessage>> respond,
-        CancellationToken cancellationToken) =>
-        Program.RunAsync(
-            settings,
-            BundledPayload,
-            AppContext.BaseDirectory,
-            _output,
-            tokenProvider: null,
-            _ => new StubHandler(respond),
-            cancellationToken);
-
-    private static async Task<JsonObject> BundledPayloadAsync() =>
-        JsonNode.Parse(await File.ReadAllTextAsync(BundledPayload))!.AsObject();
-
-    private static async Task<HttpResponseMessage> NeverRespondAsync(CancellationToken cancellationToken)
-    {
-        await Task.Delay(Timeout.Infinite, cancellationToken);
-        return new HttpResponseMessage();
-    }
-
     private sealed class FakeTokenProvider : ITokenProvider
     {
         public Task<string> GetAccessTokenAsync(CancellationToken cancellationToken) => Task.FromResult("test-token");
     }
 
-    private sealed class FailingTokenProvider : ITokenProvider
+    /// <summary>
+    /// Cancels the run while handing out the token, as Ctrl+C would, so the submit that follows sees a cancelled token.
+    /// </summary>
+    private sealed class CancellingTokenProvider(CancellationTokenSource cancellation) : ITokenProvider
     {
-        public Task<string> GetAccessTokenAsync(CancellationToken cancellationToken) =>
-            throw new MsalServiceException("invalid_client", "The client secret is not valid.");
-    }
-
-    private sealed class StubHandler(Func<CancellationToken, Task<HttpResponseMessage>> respond) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            respond(cancellationToken);
+        public async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken)
+        {
+            await cancellation.CancelAsync();
+            return "test-token";
+        }
     }
 }

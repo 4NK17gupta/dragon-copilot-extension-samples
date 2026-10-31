@@ -72,7 +72,7 @@ Run `npm unlink -g dragon-copilot` only once per workstation; subsequent rebuild
 | Physician  | `dragon-copilot physician package`                     | Produces a zip containing the manifest and any included files |
 | Radiologists | `dragon-copilot radiologists init`                     | Interactive wizard that scaffolds a radiologists extension manifest |
 | Radiologists | `dragon-copilot radiologists generate --template quality-check -o extension.yaml` | Generate a quality check manifest from the built-in template |
-| Radiologists | `dragon-copilot radiologists generate --template pre-draft-report -o extension.yaml` | Generate a pre-draft report (`partnerInitiated`) manifest from the built-in template |
+| Radiologists | `dragon-copilot radiologists generate --template pre-draft-report -o extension.yaml` | Generate a pre-draft report manifest from the built-in template |
 | Radiologists | `dragon-copilot radiologists generate --interactive` | Add a tool to an existing manifest, or scaffold a new one, by answering prompts |
 | Radiologists | `dragon-copilot radiologists validate ./extension.yaml` | Validates the radiologists manifest against JSON schema + business rules |
 | Radiologists | `dragon-copilot radiologists package`                  | Produces a zip containing the radiologists manifest and any included files |

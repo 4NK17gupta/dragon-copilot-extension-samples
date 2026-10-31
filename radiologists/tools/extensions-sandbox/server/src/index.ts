@@ -6,7 +6,8 @@ import { validateRouter } from './routes/validate.js';
 import { authRouter } from './routes/auth.js';
 import { cliRouter } from './routes/cli.js';
 import { createLogger } from './utils/logger.js';
-import { partnerInitiatedCallbackRouter } from './routes/partner-initiated.js';
+import { dragonCopilotApiRouter } from './routes/dragon-copilot-api.js';
+import { simulatedEnvironmentRouter } from './routes/simulated-environment.js';
 import { localRequestGuard } from './middleware/local-request-guard.js';
 import { globalErrorHandler } from './middleware/error-handler.js';
 import { jsonBodyParser } from './middleware/json-body.js';
@@ -23,8 +24,8 @@ app.use(cors({ origin: 'http://localhost:3000' }));
 // status + duration so activity is visible in the console during `npm run dev`.
 // We log `req.path` (not `req.originalUrl`) so query-string values — which in a
 // healthcare context could carry sensitive/PHI-shaped data — never reach logs.
-// Registered before every router, so partner-initiated callbacks are logged too
-// (path and status only; never the clinical body).
+// Registered before every router, so submissions to the simulated Dragon Copilot
+// API are logged too (path and status only; never the clinical body).
 app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
   const start = Date.now();
   httpLog.info(`--> ${req.method} ${req.path}`);
@@ -38,7 +39,9 @@ app.use((req: express.Request, res: express.Response, next: express.NextFunction
 // Reject DNS-rebinding and cross-site requests before any router runs.
 app.use(localRequestGuard);
 
-app.use('/api/partnerInitiated', partnerInitiatedCallbackRouter);
+// Mounted before the JSON parser: the simulated endpoint reads the raw body, so a malformed one is
+// reported as Dragon Copilot reports it and never reaches the global error logger.
+app.use('/api/v1', dragonCopilotApiRouter);
 app.use(jsonBodyParser);
 
 app.use('/api/health', healthRouter);
@@ -46,8 +49,9 @@ app.use('/api/manifest', manifestRouter);
 app.use('/api/validate', validateRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/cli', cliRouter);
+app.use('/api/simulated-environment', simulatedEnvironmentRouter);
 
-const ROUTES = ['/api/health', '/api/manifest', '/api/partnerInitiated', '/api/validate', '/api/auth', '/api/cli'];
+const ROUTES = ['/api/health', '/api/manifest', '/api/validate', '/api/auth', '/api/cli', '/api/simulated-environment', '/api/v1'];
 
 // Handle multer-specific errors with user-friendly messages
 app.use('/api/manifest', multerErrorHandler);

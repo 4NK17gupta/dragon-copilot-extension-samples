@@ -24,7 +24,7 @@ Consider the following sample manifest defining an extension with a single `part
 
 ```yaml
 name: sampleRadiologyExtension
-description: Sample extension providing draft radiology report generation
+description: Sample extension providing pre-draft radiology report generation
 version: 1.0.0
 radiologistsExtensibilityApiVersion: 1.0.0
 auth:
@@ -33,7 +33,7 @@ tools:
   - name: preDraftReportGeneratorTool
     toolType: partnerInitiated
     capability: preDraftReportGeneration
-    description: Tool to generate a draft radiology report
+    description: Tool to generate a pre-draft radiology report
     outputs:
       - name: preDraftReportResult
         description: Pre-draft radiology report
@@ -42,11 +42,10 @@ tools:
 ```
 
 - `auth.tenantId` should be your Microsoft Entra tenant ID. Results must be submitted with an access token issued by your tenant. See [Authentication](#authentication).
-- A `partnerInitiated` tool omits `endpoint` and `inputs`, since neither is used, and declares only what it produces. The manifest schema requires `endpoint` and `inputs` only when `toolType` is `contractBased`.
+- A `partnerInitiated` tool omits `endpoint` and `inputs`, since neither is used, and declares only what it produces. The manifest schema requires `endpoint` and `inputs` when `toolType` is `contractBased`, and rejects them when it's `partnerInitiated`.
+- Each capability produces one output type, so a `preDraftReportGeneration` tool's outputs use `application/vnd.ms-dragon.rad.draft-report+json`.
 
 The [reference manifest](../manifest/extension.yaml) declares this tool alongside a `contractBased` one.
-
-Validate the manifest with the [Dragon Copilot CLI](../../tools/dragon-copilot-cli/README.md): `dragon-copilot radiologists validate ./extension.yaml`.
 
 ## Submitting a result
 

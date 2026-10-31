@@ -133,7 +133,7 @@ describe('TestingPanel draft tool selection', () => {
   });
 
   it('shows the auth note right after the partnerInitiated tool description', async () => {
-    const authNote = 'Auth not supported for now for partner initiated flows';
+    const authNote = 'Authentication is not simulated: the sandbox endpoint does not check the access token Dragon Copilot requires.';
     await renderPanel(info);
     expect(screen.getByRole('combobox', { name: 'Capability' })).toHaveDisplayValue('Report Optimization');
     expect(screen.queryByText(authNote)).toBeNull();

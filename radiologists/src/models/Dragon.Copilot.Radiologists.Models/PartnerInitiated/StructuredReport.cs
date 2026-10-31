@@ -21,9 +21,7 @@ public class StructuredReport
     /// <summary>
     /// Gets or sets the report sections.
     /// </summary>
-    /// <remarks>Required, so deserializing a structured report without it fails rather than defaulting to an empty list.</remarks>
     [JsonPropertyName("sections")]
-    [JsonRequired]
     [SuppressMessage("Usage", "CA2227:Collection properties should be read only", Justification = "Needed for deserialization of partner payloads")]
-    public Collection<Section> Sections { get; set; } = null!;
+    public Collection<Section> Sections { get; set; } = new Collection<Section>();
 }

@@ -4,6 +4,14 @@ This console app does what your service does after your model generates a draft 
 
 It submits to a simulated Dragon Copilot endpoint built into the app, so it runs without a Dragon Copilot environment and, by default, without credentials. The simulator checks a submission in the same order as Dragon Copilot and returns the same status codes, reasons and response bodies. See [What the simulator doesn't do](#what-the-simulator-doesnt-do) for the differences.
 
+> [!NOTE]
+> **How the simulation works**
+>
+> - There's no separate server. The app's `HttpClient` uses [`SimulatedDragonCopilotHandler`](Simulation/SimulatedDragonCopilotHandler.cs), a hard-coded [HTTP message handler](https://learn.microsoft.com/dotnet/api/system.net.http.httpmessagehandler) that acts like middleware for outgoing calls.
+> - The handler intercepts each request to Dragon Copilot, checks it the way Dragon Copilot does, and returns the response Dragon Copilot would send. The request never leaves the console app.
+> - Authentication isn't simulated. When it's on, the token request goes to Microsoft Entra ID, and the handler only checks that a bearer token is present. See [What the simulator doesn't do](#what-the-simulator-doesnt-do) for what Dragon Copilot checks.
+> - Your own service doesn't need the handler: create the `HttpClient` without it, with the base URL that Microsoft provides for the environment.
+
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
@@ -24,7 +32,7 @@ Simulated Dragon Copilot environment
   Customer tenant: 11111111-1111-1111-1111-111111111111
   Environment:     22222222-2222-2222-2222-222222222222
   Installed:       sampleRadiologyExtension (Marketplace offer 101/202/303) from .../extension.yaml
-  Orders:          1
+  Orders:          ACC-0000001
   Stored results:  .../Temp/PreDraftReport.Console.QuickStart/stored-results.txt
 
 Submitting .../MockData/pre-draft-report-ingest-request.json
@@ -33,10 +41,8 @@ Submitting .../MockData/pre-draft-report-ingest-request.json
 
 200 OK
   x-ms-correlation-id: 432de2f5-820b-4861-8232-a59aadd38878
-  Stored. Dragon Copilot shows the draft when the radiologist opens the order whose accession number is in draftReport.imagingStudy.accessionNumber.
+  Stored. Dragon Copilot shows the draft when the radiologist opens the order with accession number ACC-0000001.
 ```
-
-Accession numbers identify a patient's study, so the console prints how many orders the environment has rather than their accession numbers, and never prints the payload's accession number or `draftReport.identifier`. Do the same in your service's logs, and log the correlation ID instead.
 
 Run it again and the response is `409 Conflict` with reason `ResultAlreadyStored`, because a result with the same `draftReport.identifier` is already stored. Resubmitting an identifier never stores the draft twice, which is what makes a retry safe.
 
@@ -45,8 +51,6 @@ To submit your own payload, pass its path:
 ```bash
 dotnet run -- ./my-report.json
 ```
-
-The console reads the payload strictly: if a required property such as `sections` is missing, or a property isn't one the request defines, for example because it's misspelled, it prints the property and its path and stops without sending anything.
 
 The exit code is 0 when the draft report is stored or was already stored, and 1 otherwise.
 
@@ -119,7 +123,7 @@ The console then acquires an app-only token for the Partner Communications API a
 
 ## Try each response
 
-The console prints the status, `reason` and correlation ID of each failure, then the error's message, or each validation error for a `400`, and a hint. It prints these fields rather than the raw response body. Every response is described in [Responses](../../../../partner-initiated/README.md#responses).
+The console prints the status, `reason`, correlation ID, response body and a hint for each failure. Every response is described in [Responses](../../../../partner-initiated/README.md#responses).
 
 | Response | How to get it |
 | --- | --- |
@@ -141,7 +145,6 @@ Stored results are remembered between runs, as they are in a real environment. T
 
 - It doesn't validate the access token. When authentication is on, it only checks that a bearer token is present. Dragon Copilot also validates the token, its `AiFindingsWriters` permission, and that its tenant matches the manifest's `auth.tenantId`.
 - For `400 Bad Request`, the status, title and error keys match Dragon Copilot, but the wording of an individual message can differ.
-- Its checks differ slightly from the [request schema](../../../../partner-initiated/draft-report-ingest-request-schema.json). It holds a body to the schema's property names, case included, rejects a property the request doesn't define and a `null` value, and checks values as sent, without trimming them. But it accepts numbers written as strings, such as `"0.9"`, and a `studyDateTime` that isn't an ISO 8601 UTC timestamp. It rejects a `publisherId`, `offerId`, `planId`, `manifestName` or `toolName` longer than 256 characters, a `version` longer than 64 characters, control characters in `publisherId`, `offerId` or `planId`, and a `sectionOrder` written with a decimal point, such as `1.0`, or greater than 2147483647, none of which the schema rules out. It reports the rule that `publisherId`, `offerId` and `planId` go together only once every other rule passes. Validate your payload against the schema as well.
 - It doesn't store or show the draft report. It only remembers each stored `draftReport.identifier`.
 
 ## Tests

@@ -380,12 +380,186 @@ body {
   margin-top: 1rem;
 }
 
-.partner-listener-content p {
-  margin: 0.75rem 0;
+/* Request listener for partnerInitiated tools */
+.capture-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #c7e0f4;
+  border-left: 3px solid var(--color-primary);
+  border-radius: 4px;
+  background: #eff6fc;
+  font-size: 0.85rem;
 }
 
-.partner-listener-content code {
-  overflow-wrap: anywhere;
+.capture-bar-stopped {
+  border-color: var(--color-border);
+  border-left-color: var(--color-text-secondary);
+  background: var(--color-surface);
+}
+
+/* In Results, the bar lines up with the centred column of requests and checks. */
+.capture-bar-results {
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Read by screen readers only. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.capture-bar-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.75rem;
+  min-width: 0;
+}
+
+.capture-bar-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.capture-bar-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.capture-bar-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.capture-bar-muted {
+  color: var(--color-text-secondary);
+}
+
+.capture-bar-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.15rem;
+  padding: 0 0.45rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.capture-bar-badge.pass {
+  background: #dff6dd;
+  color: var(--color-success);
+}
+
+.capture-bar-badge.fail {
+  background: #fde7e9;
+  color: var(--color-error);
+}
+
+.capture-bar-badge.latest {
+  background: #cfe4fa;
+  color: #004578;
+}
+
+.capture-bar-note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.capture-bar-button {
+  flex-shrink: 0;
+}
+
+/* Results uses the full panel width, like the other tabs. */
+.results-tab .validation-results {
+  max-width: none;
+}
+
+.captured-requests {
+  margin: 0 0 1rem;
+}
+
+.captured-requests-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.captured-requests-note {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.captured-requests-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.captured-request {
+  display: flex;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.35rem 0.6rem;
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.captured-request:hover,
+.captured-request.selected {
+  border-color: var(--color-primary);
+}
+
+.captured-request.selected {
+  background: #eff6fc;
+}
+
+.captured-request:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.captured-request-sequence {
+  min-width: 2.5rem;
+  font-weight: 600;
+}
+
+.captured-request-pass {
+  color: var(--color-success);
+}
+
+.captured-request-fail {
+  color: var(--color-error);
 }
 
 .execute-error {
@@ -1120,6 +1294,63 @@ body {
 
 .auth-save-error {
   margin-top: 0.75rem;
+}
+
+/* Simulated Dragon Copilot endpoint (partnerInitiated tools) */
+.simulated-environment {
+  border: 1px solid #e1dfdd;
+  border-radius: 4px;
+  padding: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.simulated-environment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.simulated-environment-toggle {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.simulated-environment-url {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.simulated-environment-url code {
+  overflow-wrap: anywhere;
+}
+
+.simulated-environment-body {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.simulated-environment-input {
+  width: 100%;
+  max-width: 26rem;
+}
+
+.simulated-environment-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.simulated-environment-error {
+  margin-top: 0.5rem;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  background: #fdf3f4;
+  border: 1px solid #eeacb2;
 }
 
 .claim-check-list {

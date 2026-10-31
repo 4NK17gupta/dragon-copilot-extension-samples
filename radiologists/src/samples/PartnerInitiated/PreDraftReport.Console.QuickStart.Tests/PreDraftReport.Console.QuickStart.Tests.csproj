@@ -14,9 +14,4 @@
     <ItemGroup>
         <ProjectReference Include="..\PreDraftReport.Console.QuickStart\PreDraftReport.Console.QuickStart.csproj" />
     </ItemGroup>
-    <ItemGroup>
-        <!-- The published contract the sample's payloads are checked against. -->
-        <Content Include="..\..\..\..\partner-initiated\samples\PreDraftReportGeneration-Ingest-Request-Example.json" Link="Contract\PreDraftReportGeneration-Ingest-Request-Example.json" CopyToOutputDirectory="PreserveNewest" />
-        <Content Include="..\submit-pre-draft-report.http" Link="Contract\submit-pre-draft-report.http" CopyToOutputDirectory="PreserveNewest" />
-    </ItemGroup>
 </Project>

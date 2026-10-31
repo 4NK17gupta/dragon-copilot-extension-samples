@@ -1,4 +1,12 @@
 # The Dragon Copilot (radiologists) API base URL that Microsoft provides for your environment.
+# To try these requests locally, run the extensions sandbox (radiologists/tools/extensions-sandbox),
+# use http://localhost:3000 here, and use the sandbox's customer tenant and environment IDs:
+# 11111111-1111-1111-1111-111111111111 and 22222222-2222-2222-2222-222222222222.
+# Click Run Test in the sandbox before sending: it answers 503 until then.
+# The first request sends Marketplace IDs, but by default the sandbox installs your extension as
+# a custom app, so that request gets 404 ExtensionNotFound. In the sandbox, click Configure and turn
+# on "Extension purchased from Microsoft Marketplace" with IDs 101, 202 and 303, or remove the
+# three IDs from that request.
 @dragonCopilot = https://replace-with-your-base-url
 # The customer's Microsoft Entra tenant ID, and the ID of the environment your extension is installed in.
 @customerTenantId = 00000000-0000-0000-0000-000000000000

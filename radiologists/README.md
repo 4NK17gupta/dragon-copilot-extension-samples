@@ -15,11 +15,10 @@ Welcome! This section contains sample code and documentation for building **Drag
 
 Key resources:
 
-- [Shared Platform Documentation](../doc/) — Authentication guidance and resources for all products in which Dragon Copilot calls a Partner service. For integrations in which a Partner calls a Dragon Copilot endpoint, see the [Radiologists authentication documentation](partner-initiated/authentication.md).- Sample [`Radiologists Workflow`](src/) with best practices
+- [Shared Platform Documentation](../doc/) — Authentication guidance and resources for all products in which Dragon Copilot calls a Partner service. For integrations in which a Partner calls a Dragon Copilot endpoint, see the [Radiologists authentication documentation](partner-initiated/authentication.md).
+- Sample [`Radiologists Workflow`](src/) with best practices
 - CLI tools to initialize, generate manifests, validate, and package Radiologists Workflows
-- [Partner-initiated tools](partner-initiated/README.md) — draft report schemas and samples for `partnerInitiated` tools that submit results to Dragon Copilot
-- Runnable [`partnerInitiated` sample](src/samples/PartnerInitiated/README.md) — console app that authenticates and submits a pre-draft report; its [`extension.yaml`](src/samples/PartnerInitiated/extension.yaml) declares only the tool it implements
-- Reference [`manifest/extension.yaml`](manifest/extension.yaml) — a single manifest declaring a `contractBased` quality-check tool alongside a `partnerInitiated` pre-draft report tool
+
 ### Radiologists Extensions Overview
 
 | Type                      | Description                                                                            | Use Case                                                    |

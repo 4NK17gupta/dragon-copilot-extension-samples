@@ -16,11 +16,7 @@ public sealed class DraftReportClient
     /// </summary>
     public const string CorrelationIdHeader = "x-ms-correlation-id";
 
-    /// <summary>
-    /// Gets how the request body is written. <see cref="Program"/> reads a payload file with options
-    /// derived from these, so the two can't drift apart.
-    /// </summary>
-    internal static JsonSerializerOptions SerializerOptions { get; } = new()
+    private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };

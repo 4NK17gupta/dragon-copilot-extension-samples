@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Dragon.Copilot.Radiologists.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Identity.Client;
@@ -30,18 +29,6 @@ public static class Program
         ["MultipleOrdersMatched"] = "More than one order in the environment has the accession number in draftReport.imagingStudy.accessionNumber.",
     };
 
-    // 404 and 409 responses carry message and reason; a 400 is a problem details object with title and errors.
-    private static readonly string[] ErrorSummaryProperties = ["message", "title", "detail"];
-
-    /// <summary>
-    /// Gets how a payload file is read: as the request body is written, except that a property the
-    /// model doesn't define, often a misspelling, fails the run instead of being silently dropped.
-    /// </summary>
-    internal static JsonSerializerOptions PayloadSerializerOptions { get; } = new(DraftReportClient.SerializerOptions)
-    {
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-    };
-
     /// <summary>
     /// Runs the sample.
     /// </summary>
@@ -51,24 +38,14 @@ public static class Program
     {
         ArgumentNullException.ThrowIfNull(args);
 
-        SampleSettings settings;
-        try
-        {
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: false)
-                .AddUserSecrets(typeof(Program).Assembly, optional: true)
-                .AddEnvironmentVariables()
-                .Build();
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: false)
+            .AddUserSecrets(typeof(Program).Assembly, optional: true)
+            .AddEnvironmentVariables()
+            .Build();
 
-            settings = SampleSettings.Load(configuration);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or FormatException or InvalidOperationException)
-        {
-            // A missing or malformed appsettings.json, or a setting that can't be converted to its type.
-            Console.WriteLine($"Could not load the settings: {ex.Message}");
-            return 1;
-        }
+        var settings = SampleSettings.Load(configuration);
 
         ClientCredentialsTokenProvider? tokenProvider = null;
         if (settings.Authentication.Enabled)
@@ -86,38 +63,19 @@ public static class Program
                 settings.Authentication.ClientSecret);
         }
 
-        string payloadPath;
-        try
-        {
-            payloadPath = args.Length > 0
-                ? Path.GetFullPath(args[0])
-                : Path.Combine(AppContext.BaseDirectory, "MockData", DefaultPayloadFileName);
-        }
-        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
-        {
-            Console.WriteLine($"The payload path '{args[0]}' is not valid: {ex.Message}");
-            return 1;
-        }
+        var payloadPath = args.Length > 0
+            ? Path.GetFullPath(args[0])
+            : Path.Combine(AppContext.BaseDirectory, "MockData", DefaultPayloadFileName);
 
         using var cancellation = new CancellationTokenSource();
-        void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs eventArgs)
+        Console.CancelKeyPress += (_, eventArgs) =>
         {
-            // Let the run stop cleanly instead of the process being killed.
             eventArgs.Cancel = true;
             cancellation.Cancel();
-        }
+        };
 
-        Console.CancelKeyPress += OnCancelKeyPress;
-        try
-        {
-            return await RunAsync(settings, payloadPath, AppContext.BaseDirectory, Console.Out, tokenProvider, cancellation.Token)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            // Unsubscribe before the token source is disposed, so a late Ctrl+C can't cancel a disposed source.
-            Console.CancelKeyPress -= OnCancelKeyPress;
-        }
+        return await RunAsync(settings, payloadPath, AppContext.BaseDirectory, Console.Out, tokenProvider, cancellation.Token)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -130,34 +88,13 @@ public static class Program
     /// <param name="output">Where to write progress and results.</param>
     /// <param name="tokenProvider">Supplies the access token, or null to submit without one.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
-    /// <returns>Zero when the draft report is stored, or was already stored; one otherwise.</returns>
-    public static Task<int> RunAsync(
+    /// <returns>Zero when the draft report is stored, or was already stored; one otherwise, including when the run is cancelled.</returns>
+    public static async Task<int> RunAsync(
         SampleSettings settings,
         string payloadPath,
         string baseDirectory,
         TextWriter output,
         ITokenProvider? tokenProvider,
-        CancellationToken cancellationToken) =>
-        RunAsync(settings, payloadPath, baseDirectory, output, tokenProvider, createHandler: null, cancellationToken);
-
-    /// <summary>
-    /// Runs the sample, optionally sending requests through a handler other than the simulated endpoint.
-    /// </summary>
-    /// <param name="settings">The sample's settings.</param>
-    /// <param name="payloadPath">The payload file to submit.</param>
-    /// <param name="baseDirectory">The folder that relative paths in the settings are relative to.</param>
-    /// <param name="output">Where to write progress and results.</param>
-    /// <param name="tokenProvider">Supplies the access token, or null to submit without one.</param>
-    /// <param name="createHandler">Creates the handler requests are sent through, or null for the simulated endpoint.</param>
-    /// <param name="cancellationToken">Cancels the run.</param>
-    /// <returns>Zero when the draft report is stored, or was already stored; one otherwise.</returns>
-    internal static async Task<int> RunAsync(
-        SampleSettings settings,
-        string payloadPath,
-        string baseDirectory,
-        TextWriter output,
-        ITokenProvider? tokenProvider,
-        Func<SimulatedEnvironment, HttpMessageHandler>? createHandler,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -165,23 +102,23 @@ public static class Program
 
         try
         {
-            return await RunCoreAsync(settings, payloadPath, baseDirectory, output, tokenProvider, createHandler, cancellationToken)
+            return await RunStepsAsync(settings, payloadPath, baseDirectory, output, tokenProvider, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            // Ctrl+C cancels whichever step is running: loading the payload, acquiring the token or submitting.
             await output.WriteLineAsync("Cancelled.").ConfigureAwait(false);
             return 1;
         }
     }
 
-    private static async Task<int> RunCoreAsync(
+    private static async Task<int> RunStepsAsync(
         SampleSettings settings,
         string payloadPath,
         string baseDirectory,
         TextWriter output,
         ITokenProvider? tokenProvider,
-        Func<SimulatedEnvironment, HttpMessageHandler>? createHandler,
         CancellationToken cancellationToken)
     {
         // 1. Load the request. A Partner's service builds it from its model's output instead.
@@ -208,21 +145,10 @@ public static class Program
         }
 
         // 3. Send requests to the simulated endpoint instead of a real Dragon Copilot environment.
-        SimulatedEnvironment environment;
-        try
-        {
-            environment = SimulatedEnvironment.Load(settings.Simulation, baseDirectory);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        {
-            // An unreadable manifest or stored results file, or a path in the settings that isn't valid.
-            await output.WriteLineAsync($"Could not set up the simulated environment: {ex.Message}").ConfigureAwait(false);
-            return 1;
-        }
-
+        var environment = SimulatedEnvironment.Load(settings.Simulation, baseDirectory);
         DescribeEnvironment(environment, output);
 
-        using var handler = CreateHandler(environment, requireAccessToken: tokenProvider is not null, createHandler);
+        using var handler = new SimulatedDragonCopilotHandler(environment, requireAccessToken: tokenProvider is not null);
         using var httpClient = new HttpClient(handler, disposeHandler: false)
         {
             BaseAddress = SimulatedDragonCopilotHandler.BaseAddress,
@@ -261,7 +187,7 @@ public static class Program
             return 1;
         }
 
-        return Report(result, output);
+        return Report(result, request, output);
     }
 
     private static List<string> MissingAuthenticationSettings(AuthenticationSettings authentication)
@@ -296,7 +222,7 @@ public static class Program
         try
         {
             var json = await File.ReadAllTextAsync(payloadPath, cancellationToken).ConfigureAwait(false);
-            var request = JsonSerializer.Deserialize<DraftReportIngestRequest>(json, PayloadSerializerOptions);
+            var request = JsonSerializer.Deserialize<DraftReportIngestRequest>(json);
             if (request is null)
             {
                 await output.WriteLineAsync($"Payload is empty: {payloadPath}").ConfigureAwait(false);
@@ -306,36 +232,9 @@ public static class Program
         }
         catch (JsonException ex)
         {
-            // Also raised when a required property with no null value, such as aiGenerated or sections,
-            // is missing, and when a property isn't one the model defines.
-            var message = ex.Message;
-            if (ex.Path is not null && !message.Contains(ex.Path, StringComparison.Ordinal))
-            {
-                // Those two messages name the property but not where it is.
-                message += $" Path: {ex.Path}.";
-            }
-
-            await output.WriteLineAsync($"Payload is not a valid draft report ingest request: {message}").ConfigureAwait(false);
+            await output.WriteLineAsync($"Payload could not be read: {ex.Message}").ConfigureAwait(false);
             return null;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            await output.WriteLineAsync($"Could not read the payload {payloadPath}: {ex.Message}").ConfigureAwait(false);
-            return null;
-        }
-    }
-
-    private static HttpMessageHandler CreateHandler(
-        SimulatedEnvironment environment,
-        bool requireAccessToken,
-        Func<SimulatedEnvironment, HttpMessageHandler>? createHandler)
-    {
-        if (createHandler is not null)
-        {
-            return createHandler(environment);
-        }
-
-        return new SimulatedDragonCopilotHandler(environment, requireAccessToken);
     }
 
     private static void DescribeEnvironment(SimulatedEnvironment environment, TextWriter output)
@@ -360,13 +259,12 @@ public static class Program
                 : $"  Not installed:   the manifest {installation.ManifestPath} {installation.Problem}");
         }
 
-        // Accession numbers identify a patient's study, so only their count is printed.
-        output.WriteLine($"  Orders:          {environment.Orders.Count}");
+        output.WriteLine($"  Orders:          {string.Join(", ", environment.Orders)}");
         output.WriteLine($"  Stored results:  {environment.StoredResultsPath}");
         output.WriteLine();
     }
 
-    private static int Report(SubmissionResult result, TextWriter output)
+    private static int Report(SubmissionResult result, DraftReportIngestRequest request, TextWriter output)
     {
         output.WriteLine();
         output.WriteLine(result.Reason is null
@@ -377,7 +275,7 @@ public static class Program
         if (result.StatusCode == HttpStatusCode.OK)
         {
             output.WriteLine(
-                "  Stored. Dragon Copilot shows the draft when the radiologist opens the order whose accession number is in draftReport.imagingStudy.accessionNumber.");
+                $"  Stored. Dragon Copilot shows the draft when the radiologist opens the order with accession number {request.DraftReport.ImagingStudy.AccessionNumber}.");
             return 0;
         }
 
@@ -385,12 +283,15 @@ public static class Program
         {
             // Resending the same identifier never stores the draft twice, which is what makes a retry safe.
             output.WriteLine(
-                "  A result with this draftReport.identifier is already stored, so nothing was stored again. " +
+                $"  A result with draftReport.identifier {request.DraftReport.Identifier} is already stored, so nothing was stored again. " +
                 "If this was a retry, there's nothing more to do. To replace the draft, submit it with a new identifier.");
             return 0;
         }
 
-        WriteErrorDetails(result.Body, output);
+        if (result.Body.Length > 0)
+        {
+            output.WriteLine($"  {result.Body}");
+        }
 
         if (result.Reason is not null && ReasonHints.TryGetValue(result.Reason, out var hint))
         {
@@ -402,56 +303,5 @@ public static class Program
         }
 
         return 1;
-    }
-
-    /// <summary>
-    /// Prints the documented fields of an error response rather than its raw body, so that whatever
-    /// else a response carries doesn't end up in a log.
-    /// </summary>
-    private static void WriteErrorDetails(string body, TextWriter output)
-    {
-        if (body.Length == 0)
-        {
-            return;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(body);
-            var error = document.RootElement;
-            if (error.ValueKind != JsonValueKind.Object)
-            {
-                output.WriteLine("  The response body isn't a JSON error object, so it isn't shown.");
-                return;
-            }
-
-            foreach (var name in ErrorSummaryProperties)
-            {
-                if (error.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String)
-                {
-                    output.WriteLine($"  {value.GetString()}");
-                }
-            }
-
-            if (error.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var property in errors.EnumerateObject().Where(property => property.Value.ValueKind == JsonValueKind.Array))
-                {
-                    var messages = property.Value.EnumerateArray()
-                        .Where(message => message.ValueKind == JsonValueKind.String)
-                        .Select(message => message.GetString());
-                    output.WriteLine($"  {property.Name}: {string.Join(" ", messages)}");
-                }
-            }
-
-            if (error.TryGetProperty("traceId", out var traceId) && traceId.ValueKind == JsonValueKind.String)
-            {
-                output.WriteLine($"  traceId: {traceId.GetString()}");
-            }
-        }
-        catch (JsonException)
-        {
-            output.WriteLine("  The response body isn't JSON, so it isn't shown.");
-        }
     }
 }
