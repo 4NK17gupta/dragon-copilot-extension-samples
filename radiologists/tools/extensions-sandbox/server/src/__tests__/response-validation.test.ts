@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { validateToolResponse } from '../services/validation.js';
-import { sessionStore } from '../store/session.js';
+import { MAX_VALIDATION_RESULTS, sessionStore } from '../store/session.js';
 import type { ExtensionManifest } from '../schemas/manifest.schema.js';
 
 /** A minimal valid manifest for testing the validation engine. */
@@ -340,6 +340,18 @@ describe('Session Store – Validation Results', () => {
     expect(results.length).toBe(2);
     expect(results[0].valid).toBe(true);
     expect(results[1].valid).toBe(false);
+  });
+
+  it(`should keep only the most recent ${MAX_VALIDATION_RESULTS} results`, () => {
+    loadTestManifest();
+    const valid = validateToolResponse('chest-ct-quality', { recommendations: [] });
+    for (let index = 0; index < MAX_VALIDATION_RESULTS; index++) {
+      sessionStore.addValidationResult(valid);
+    }
+    sessionStore.addValidationResult(validateToolResponse('chest-ct-quality', {}));
+    const results = sessionStore.getValidationResults();
+    expect(results.length).toBe(MAX_VALIDATION_RESULTS);
+    expect(results.at(-1)?.valid).toBe(false);
   });
 
   it('should clear validation results when a new manifest is loaded', () => {

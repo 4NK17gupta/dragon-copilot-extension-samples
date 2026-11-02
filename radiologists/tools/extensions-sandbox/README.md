@@ -88,7 +88,9 @@ Server-Sent Events (SSE). Each completed run also contributes its aggregate
 validation to the session's consolidated report, including invalid requests.
 The callback works through the UI's port 3000 proxy or directly on API port 4000.
 This is a local schema-testing listener, not the authenticated production ingestion
-API: it does not match patient orders or persist reports. Use synthetic data.
+API: it does not match patient orders or persist reports. To test against the
+production route shape, status codes and order matching, use the
+[simulated ingest route](#submitting-to-the-simulated-draft-report-ingest-route). Use synthetic data.
 The authoritative `radiologists/partner-initiated/draft-report-schema.json`
 is synced into the server before dev/build/test and packaged with the built server.
 Its output content type is `application/vnd.ms-dragon.rad.draft-report+json`.
@@ -102,6 +104,105 @@ by their alternate text without loading remote resources. Invalid submissions
 show an error rather than a draft; the full payload remains in **Outputs**.
 The public capability identifier remains `preDraftReportGeneration`; existing
 tool names, template IDs, and example filenames are unchanged.
+
+### Submitting to the simulated draft report ingest route
+
+The sandbox also simulates Dragon Copilot's
+[submission endpoint](../../partner-initiated/README.md#submitting-a-result), so a partner
+service can be tested against the route, checks and status codes it will meet in production.
+Point the service's base URL at the sandbox (port 3000 also works, through the UI's proxy):
+
+```http
+POST http://localhost:4000/api/v1/tenants/{customerTenantId}/environments/{environmentId}/draft-report-ai-results
+```
+
+No run needs to be armed: the route accepts any number of submissions while the sandbox runs.
+The one-shot listener above is unchanged, and **Run Test** still uses it.
+
+Load the manifest that declares the tool first. With
+`radiologists/src/samples/PartnerInitiated/extension.yaml` loaded, the ingest example is
+accepted unchanged. From the sandbox directory in PowerShell:
+
+```powershell
+$uri = 'http://localhost:4000/api/v1/tenants/11111111-1111-1111-1111-111111111111/environments/22222222-2222-2222-2222-222222222222/draft-report-ai-results'
+$body = Get-Content ..\..\partner-initiated\samples\PreDraftReportGeneration-Ingest-Request-Example.json -Raw
+Invoke-RestMethod -Method Post -Uri $uri -ContentType 'application/json' -Body $body
+```
+
+Sending the same body again returns `409` with reason `ResultAlreadyStored`. The
+[`.http` sample](../../src/samples/PartnerInitiated/submit-pre-draft-report.http) also works
+once `@dragonCopilot` is `http://localhost:4000` and the tenant and environment IDs are
+non-empty GUIDs.
+
+Checks run in Dragon Copilot's order, and the first failure decides the response:
+
+| # | Check | On failure |
+|---|-------|------------|
+| 1 | `Content-Type` is `application/json` | `415` |
+| 2 | The body is JSON, uncompressed, at most 1 MB, and nested at most 64 levels deep | `400`, `415` or `413` |
+| 3 | The route IDs are non-empty GUIDs, the body is not empty, and it matches `draft-report-ingest-request-schema.json`, including `draftReport` and the rule that Marketplace IDs are sent together or not at all | `400` |
+| 4 | `manifestName` equals the loaded manifest's `name`, ignoring case | `404` `ExtensionNotFound` |
+| 5 | That manifest declares `toolName` as a `partnerInitiated` tool with the `preDraftReportGeneration` capability | `404` `ToolNotFound` |
+| 6 | No stored result has this `draftReport.identifier` | `409` `ResultAlreadyStored` |
+| 7 | `draftReport.imagingStudy.accessionNumber` matches exactly one order | `404` `OrderNotFound` or `409` `MultipleOrdersMatched` |
+
+If every check passes, the result is stored and the route returns `200`. Error responses
+follow production: `400`, `413`, `415` and `500` are `application/problem+json`, with
+`400` errors keyed by JSON Pointer, or by route parameter name for the route IDs; `404` and
+`409` carry `message` and `reason`. Every response carries an `x-ms-correlation-id` header,
+echoing a usable one you sent (up to 128 printable ASCII characters) or a generated one.
+Methods other than `POST` return `405`.
+
+Dragon Copilot's `200` has no body. The sandbox adds a `sandbox` member to every response
+with `stored`, `processingTimeMs` and `validation` (each check that ran, and any schema
+errors), and adds the validation to the session's consolidated report, which keeps the
+most recent 500 validations. Don't depend on the `sandbox` member in partner code.
+
+What the sandbox does not simulate:
+
+- **One environment.** Any non-empty GUIDs identify it, so `EnvironmentNotFound` and
+  `MultipleExtensionsMatched` are never returned.
+- **Marketplace IDs** are validated by the schema but not matched; sending them adds a
+  warning to the extension check.
+- **No authentication.** No token is required or checked, so `401` and `403` are never
+  returned. The stored `partnerTenantId` is the loaded manifest's `auth.tenantId`; in
+  production it is the token's tenant, which must equal it.
+- **`400` details.** The status codes match production, but the `errors` keys and messages
+  don't: Dragon Copilot uses ASP.NET Core keys such as `$.draftReport` or
+  `MarketplaceExtensionIdentifiers`. It also reports the Marketplace ID rule only when the
+  body has no other errors, and rejects duplicate JSON properties, which the sandbox
+  accepts (the last value wins). Handle a `400` by its status, not its keys or messages.
+
+**Orders and vendor.** The simulated environment's orders default to `ACC-0000001`,
+`ACC-0000002`, `ACC-0000003`, and `ACC-AMBIGUOUS` twice, so that number returns
+`MultipleOrdersMatched`. Replace them, or the vendor name reported on retrieve for results
+stored afterwards, with:
+
+```powershell
+$settings = @{ orders = @('ACC-0000001', 'MY-ACC-42'); vendorName = 'Contoso Imaging' } | ConvertTo-Json
+Invoke-RestMethod -Method Put -Uri 'http://localhost:4000/api/draft-report-ai-results/settings' -ContentType 'application/json' -Body $settings
+```
+
+`orders` replaces the whole list (up to 1,000; list a number twice to make it ambiguous).
+Each value must be a non-blank string of at most 256 characters. Settings last until the
+server restarts.
+
+**Retrieve.** `GET /api/draft-report-ai-results?accessionNumber=ACC-0000001` returns the
+stored results for an accession number, shaped like
+[`PreDraftReportGeneration-Retrieve-Response-Example.json`](../../partner-initiated/samples/PreDraftReportGeneration-Retrieve-Response-Example.json):
+one `DraftReport` output per stored result, from any extension. Its `output` is a JSON
+string of `partnerTenantId`, `extensionName`, `toolName` and the submitted `draftReport`,
+and its `aiModelsInformation` gives the vendor name configured when the result was stored,
+the tool name as `aiModelName`, and `draftReport.aiSystemInfo.version` as `aiModelVersion`.
+An accession number with no results returns an empty `outputs` collection. The accession
+number is a query parameter so the request log, which records paths only, never contains it.
+
+**Storage.** One result is kept per extension, tool and accession number; a newer
+submission, with a new identifier, replaces the earlier one. Results don't depend on the
+loaded manifest: they survive replacing or clearing it, so results from several extensions
+can be retrieved together. They are held in memory, never logged, until
+`DELETE /api/draft-report-ai-results` or a restart. Beyond 100 results the oldest is
+dropped, and beyond 10,000 identifiers the oldest is forgotten and accepted again.
 
 ### Creating a manifest with the CLI wizard
 
@@ -231,6 +332,7 @@ extensions-sandbox/
     │   │   └── manifest.schema.ts      # TypeScript types for manifests
     │   ├── routes/
     │   │   ├── cli.ts                  # Manifest generation with the CLI's own code
+    │   │   ├── draft-report-ai-results.ts  # Simulated draft report ingest, retrieve and settings
     │   │   └── manifest.ts
     │   ├── services/
     │   │   ├── manifest-schema.ts      # Shared manifest schema validation + error shaping
@@ -315,6 +417,18 @@ return a generic `500` and are logged without the request body.
 | DELETE | /api/validate/results             | Clear stored validation results                                    |
 
 Input and response validation return `200` when valid and `422` when the payload fails schema validation.
+
+### Draft report simulation
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST   | /api/v1/tenants/:tenantId/environments/:environmentId/draft-report-ai-results | Submit a draft report with Dragon Copilot's checks and status codes |
+| GET    | /api/draft-report-ai-results?accessionNumber=… | Retrieve stored results for an accession number, in Dragon Copilot's retrieve shape |
+| DELETE | /api/draft-report-ai-results | Clear stored results and identifiers |
+| GET    | /api/draft-report-ai-results/settings | Get the simulated orders and vendor name |
+| PUT    | /api/draft-report-ai-results/settings | Update `orders` and/or `vendorName` |
+
+See [Submitting to the simulated draft report ingest route](#submitting-to-the-simulated-draft-report-ingest-route).
 
 ### Authentication
 

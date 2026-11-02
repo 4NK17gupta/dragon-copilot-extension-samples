@@ -74,6 +74,8 @@ The JSON body identifies your extension and tool, and carries the draft report. 
 - Schema: [`draft-report-ingest-request-schema.json`](draft-report-ingest-request-schema.json)
 - Example: [`PreDraftReportGeneration-Ingest-Request-Example.json`](samples/PreDraftReportGeneration-Ingest-Request-Example.json)
 
+To try submissions locally before you have a customer environment, use the [Extensions Sandbox's simulated ingest route](../tools/extensions-sandbox/README.md#submitting-to-the-simulated-draft-report-ingest-route). It applies the checks and responses below to synthetic orders, without authentication.
+
 ### How a submission is matched
 
 Dragon Copilot stores a submission only when all of these match:
