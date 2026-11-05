@@ -6,7 +6,7 @@ import { CliWizardDialog } from '../CliWizardDialog';
 const REPORT_CONTENT_TYPE = 'application/vnd.ms-dragon.rad.report+json';
 const PATIENT_INFORMATION_CONTENT_TYPE = 'application/vnd.ms-dragon.rad.patient-information+json';
 const TENANT_ID = '00000000-0000-0000-0000-000000000001';
-const AUTH_NOTE = 'Auth not supported for now for partner initiated flows';
+const AUTH_NOTE = 'Authentication is not simulated: the sandbox endpoint does not check the access token Dragon Copilot requires.';
 
 // Mirrors GET /api/cli/options, which is sourced from the CLI's manifest core.
 const OPTIONS = {

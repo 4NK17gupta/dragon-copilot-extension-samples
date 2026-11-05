@@ -6,9 +6,9 @@ import { validateRouter } from './routes/validate.js';
 import { authRouter } from './routes/auth.js';
 import { cliRouter } from './routes/cli.js';
 import { createLogger } from './utils/logger.js';
-import { partnerInitiatedCallbackRouter } from './routes/partner-initiated.js';
-import { draftReportIngestRouter, draftReportResultsRouter } from './routes/draft-report-ai-results.js';
-import { preloadIngestRequestSchemas } from './services/partner-validation.js';
+import { dragonCopilotApiRouter } from './routes/dragon-copilot-api.js';
+import { draftReportResultsRouter } from './routes/draft-report-ai-results.js';
+import { simulatedEnvironmentRouter } from './routes/simulated-environment.js';
 import { localRequestGuard } from './middleware/local-request-guard.js';
 import { globalErrorHandler } from './middleware/error-handler.js';
 import { jsonBodyParser } from './middleware/json-body.js';
@@ -25,8 +25,8 @@ app.use(cors({ origin: 'http://localhost:3000' }));
 // status + duration so activity is visible in the console during `npm run dev`.
 // We log `req.path` (not `req.originalUrl`) so query-string values — which in a
 // healthcare context could carry sensitive/PHI-shaped data — never reach logs.
-// Registered before every router, so partner-initiated callbacks are logged too
-// (path and status only; never the clinical body).
+// Registered before every router, so submissions to the simulated Dragon Copilot
+// API are logged too (path and status only; never the clinical body).
 app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
   const start = Date.now();
   httpLog.info(`--> ${req.method} ${req.path}`);
@@ -40,9 +40,10 @@ app.use((req: express.Request, res: express.Response, next: express.NextFunction
 // Reject DNS-rebinding and cross-site requests before any router runs.
 app.use(localRequestGuard);
 
-app.use('/api/partnerInitiated', partnerInitiatedCallbackRouter);
-// Like the callback router, it parses its own body so parse failures shape its response.
-app.use('/api/v1', draftReportIngestRouter);
+// Mounted before the JSON parser: the simulated endpoint reads the raw body, so a malformed one is
+// answered as Dragon Copilot answers it, and no body, not even an aborted upload, reaches the global
+// error logger.
+app.use('/api/v1', dragonCopilotApiRouter);
 // Before the global parser, as its settings body can exceed the global 100 KB limit.
 app.use('/api/draft-report-ai-results', draftReportResultsRouter);
 app.use(jsonBodyParser);
@@ -52,24 +53,18 @@ app.use('/api/manifest', manifestRouter);
 app.use('/api/validate', validateRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/cli', cliRouter);
+app.use('/api/simulated-environment', simulatedEnvironmentRouter);
 
 const ROUTES = [
-  '/api/health', '/api/manifest', '/api/partnerInitiated',
-  '/api/v1/tenants/:tenantId/environments/:environmentId/draft-report-ai-results',
-  '/api/draft-report-ai-results', '/api/validate', '/api/auth', '/api/cli',
+  '/api/health', '/api/manifest', '/api/validate', '/api/auth', '/api/cli', '/api/simulated-environment',
+  '/api/v1/tenants/:customerTenantId/environments/:environmentId/draft-report-ai-results',
+  '/api/draft-report-ai-results',
 ];
 
 // Handle multer-specific errors with user-friendly messages
 app.use('/api/manifest', multerErrorHandler);
 
 app.use(globalErrorHandler);
-
-// Compiled before listening, so no submission waits for it or blocks other requests.
-try {
-  preloadIngestRequestSchemas();
-} catch {
-  serverLog.warn('Draft report ingest schemas could not be loaded; submissions return 500 until the schema sync/build step runs.');
-}
 
 app.listen(PORT, '127.0.0.1', () => {
   serverLog.info(`listening on http://localhost:${PORT}`);

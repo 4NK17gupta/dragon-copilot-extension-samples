@@ -69,6 +69,16 @@ beforeEach(() => {
     if (url.includes('/tools')) {
       return json([]);
     }
+    if (url === '/api/simulated-environment') {
+      return json({
+        customerTenantId: '11111111-1111-1111-1111-111111111111',
+        environmentId: '22222222-2222-2222-2222-222222222222',
+        marketplace: null,
+        orders: ['ACC-0000001'],
+        submissionPath: '/api/v1/tenants/11111111-1111-1111-1111-111111111111/environments/22222222-2222-2222-2222-222222222222/draft-report-ai-results',
+        storedResultCount: 0,
+      });
+    }
     return json({});
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -133,7 +143,7 @@ describe('TestingPanel draft tool selection', () => {
   });
 
   it('shows the auth note right after the partnerInitiated tool description', async () => {
-    const authNote = 'Auth not supported for now for partner initiated flows';
+    const authNote = 'Authentication is not simulated: the sandbox endpoint does not check the access token Dragon Copilot requires.';
     await renderPanel(info);
     expect(screen.getByRole('combobox', { name: 'Capability' })).toHaveDisplayValue('Report Optimization');
     expect(screen.queryByText(authNote)).toBeNull();
