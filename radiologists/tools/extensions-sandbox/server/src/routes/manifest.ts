@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import multer, { MulterError } from 'multer';
 import yaml from 'js-yaml';
 import { sessionStore } from '../store/session.js';
+import { simulatedEnvironment } from '../store/simulated-environment.js';
 import { getToolsForCapability } from '../utils/tool-metadata.js';
 import { parseCapabilities } from '../utils/capabilities-parser.js';
 import { callExtensionAsync, buildProcessRequest, canSendBearerToken } from '../services/extension-client.js';
@@ -264,10 +265,13 @@ manifestRouter.get('/capabilities/:capabilityName/tools', (req, res) => {
 
 /**
  * DELETE /api/manifest
- * Clears the current session manifest.
+ * Reset Session: clears the session manifest, its validation results and listening run, and the
+ * results the simulated Dragon Copilot endpoint has stored. Settings, such as authentication and
+ * the simulated environment, are kept.
  */
 manifestRouter.delete('/', (_req, res) => {
   sessionStore.clear();
+  simulatedEnvironment.clearStoredResults();
   res.json({ message: 'Manifest cleared.' });
 });
 

@@ -3,11 +3,10 @@ import type { ValidationResult } from '../services/validation.js';
 import type { AuthConfig, SafeAuthConfig } from '../services/auth.js';
 import { EXTENSION_RUNTIME_CLIENT_ID } from '../services/auth.js';
 import { PartnerRunStore } from './partner-run.js';
-import { DraftReportResultStore } from './draft-report-results.js';
 
 /**
- * Oldest validation results are dropped beyond this. Partner services can submit to the
- * draft report ingest route without limit, so the list must not grow with them.
+ * Oldest validation results are dropped beyond this. Partner services can send draft reports to
+ * the simulated endpoint without limit, so the list must not grow with them.
  */
 export const MAX_VALIDATION_RESULTS = 500;
 
@@ -22,12 +21,6 @@ export const MAX_VALIDATION_RESULTS = 500;
  */
 class SessionStore {
   readonly partnerRuns = new PartnerRunStore();
-  /**
-   * Draft reports submitted to the production-shaped ingest route. Deliberately not
-   * cleared with the manifest: stored results outlive the extension that submitted
-   * them, so results from several extensions can be retrieved together.
-   */
-  readonly draftReports = new DraftReportResultStore();
   private manifest: ExtensionManifest | null = null;
   private rawManifestText: string | null = null;
   private validationResults: ValidationResult[] = [];

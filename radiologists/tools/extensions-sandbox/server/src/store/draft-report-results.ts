@@ -1,21 +1,15 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 export const DEFAULT_VENDOR_NAME = 'Sample Imaging Vendor';
 
-/**
- * Accession numbers of the simulated environment's orders. A number listed twice
- * stands for two orders, so it exercises the 409 MultipleOrdersMatched path.
- */
-export const DEFAULT_ORDERS: readonly string[] = [
-  'ACC-0000001',
-  'ACC-0000002',
-  'ACC-0000003',
-  'ACC-AMBIGUOUS',
-  'ACC-AMBIGUOUS',
-];
-
-/** Oldest results are dropped beyond this, so memory stays bounded (bodies are up to 1 MB). */
+/** Oldest results are dropped beyond this, so memory stays bounded. */
 export const MAX_STORED_RESULTS = 100;
+
+/**
+ * Oldest results are also dropped while their outputs total more than this many characters, as a
+ * draft report can be nearly as large as the body limit. The newest result is always kept.
+ */
+export const MAX_STORED_OUTPUT_LENGTH = 50_000_000;
 
 /** Oldest identifiers are forgotten beyond this; a forgotten identifier is accepted again. */
 export const MAX_STORED_IDENTIFIERS = 10_000;
@@ -30,7 +24,9 @@ export interface DraftReportSettings {
   orders: string[];
 }
 
-export interface DraftReportSubmission {
+/** A submission Dragon Copilot accepted, with what the retrieve simulation reports for it. */
+export interface DraftReportResult {
+  environmentId: string;
   partnerTenantId: string;
   extensionName: string;
   toolName: string;
@@ -41,6 +37,7 @@ export interface DraftReportSubmission {
 }
 
 interface StoredDraftReport {
+  environmentId: string;
   accessionNumber: string;
   vendorName: string;
   aiModelName: string;
@@ -66,93 +63,99 @@ export interface DraftReportRetrieveResponse {
   capabilityExecutionResults: { outputs: DraftReportRetrieveOutput[] };
 }
 
-function defaultSettings(): DraftReportSettings {
-  return { vendorName: DEFAULT_VENDOR_NAME, orders: [...DEFAULT_ORDERS] };
+/** Environment IDs are GUIDs, so they match ignoring case. */
+function environmentKey(environmentId: string): string {
+  return environmentId.toUpperCase();
+}
+
+/** Hashed, so an identifier as long as the body doesn't stay in memory. */
+function identifierKey(environmentId: string, identifier: string): string {
+  return createHash('sha256').update(`${environmentKey(environmentId)}\t${identifier}`).digest('base64');
 }
 
 /**
- * The draft reports stored in the sandbox's single simulated customer environment,
- * and the orders they are matched to. It is independent of the loaded manifest, as
- * stored results in Dragon Copilot outlive the extension that submitted them, so
- * results from several extensions can be retrieved together.
+ * The draft reports stored in the simulated customer environments, and the identifiers Dragon Copilot
+ * checks before it stores another. Stored results don't depend on the loaded manifest, as in Dragon
+ * Copilot they outlive the extension that submitted them, so results from several extensions can be
+ * retrieved together.
  */
 export class DraftReportResultStore {
-  private settings = defaultSettings();
+  private vendor = DEFAULT_VENDOR_NAME;
+  /** Identifiers of stored results, by environment, oldest first. */
   private readonly identifiers = new Set<string>();
-  /** Keyed by partner tenant, extension, tool and accession number, oldest first. */
+  /** Keyed by environment, partner tenant, extension, tool and accession number, oldest first. */
   private readonly results = new Map<string, StoredDraftReport>();
+  private outputLength = 0;
 
-  getSettings(): DraftReportSettings {
-    return { vendorName: this.settings.vendorName, orders: [...this.settings.orders] };
+  get vendorName(): string {
+    return this.vendor;
   }
 
-  updateSettings(update: Partial<DraftReportSettings>): DraftReportSettings {
-    this.settings = {
-      vendorName: update.vendorName ?? this.settings.vendorName,
-      orders: update.orders ? [...update.orders] : this.settings.orders,
-    };
-    return this.getSettings();
+  set vendorName(vendorName: string) {
+    this.vendor = vendorName;
   }
 
-  resetSettings(): void {
-    this.settings = defaultSettings();
+  resetVendorName(): void {
+    this.vendor = DEFAULT_VENDOR_NAME;
   }
 
-  hasIdentifier(identifier: string): boolean {
-    return this.identifiers.has(identifier);
-  }
-
-  countOrders(accessionNumber: string): number {
-    return this.settings.orders.filter((order) => order === accessionNumber).length;
+  hasIdentifier(environmentId: string, identifier: string): boolean {
+    return this.identifiers.has(identifierKey(environmentId, identifier));
   }
 
   /**
-   * Stores a submission. A newer submission for the same tool and accession number
-   * replaces the earlier one, as Dragon Copilot keeps one draft per study and tool.
+   * Stores a result. A newer result for the same tool and accession number replaces the earlier one,
+   * as Dragon Copilot keeps one draft per study and tool.
    */
-  store(submission: DraftReportSubmission): void {
+  store(result: DraftReportResult): void {
     // Serialized before anything is recorded, so a body that can't be serialized
     // changes nothing and the identifier can still be submitted.
     const output = JSON.stringify({
-      partnerTenantId: submission.partnerTenantId,
-      extensionName: submission.extensionName,
-      toolName: submission.toolName,
-      draftReport: submission.draftReport,
+      partnerTenantId: result.partnerTenantId,
+      extensionName: result.extensionName,
+      toolName: result.toolName,
+      draftReport: result.draftReport,
     });
     const key = JSON.stringify([
-      submission.partnerTenantId.toLowerCase(),
-      submission.extensionName.toLowerCase(),
-      submission.toolName.toLowerCase(),
-      submission.accessionNumber,
+      environmentKey(result.environmentId),
+      result.partnerTenantId.toLowerCase(),
+      result.extensionName.toLowerCase(),
+      result.toolName.toLowerCase(),
+      result.accessionNumber,
     ]);
 
-    this.identifiers.add(submission.identifier);
+    // Deleted first so a repeated key moves to the end, keeping both collections oldest first.
+    const identifier = identifierKey(result.environmentId, result.identifier);
+    this.identifiers.delete(identifier);
+    this.identifiers.add(identifier);
     while (this.identifiers.size > MAX_STORED_IDENTIFIERS) {
       this.identifiers.delete(this.identifiers.values().next().value!);
     }
 
-    // Delete first so the replacement moves to the end, keeping the map oldest first.
-    this.results.delete(key);
+    this.delete(key);
     this.results.set(key, {
-      accessionNumber: submission.accessionNumber,
-      vendorName: this.settings.vendorName,
-      aiModelName: submission.toolName,
-      aiModelVersion: submission.aiModelVersion,
+      environmentId: environmentKey(result.environmentId),
+      accessionNumber: result.accessionNumber,
+      vendorName: this.vendor,
+      aiModelName: result.toolName,
+      aiModelVersion: result.aiModelVersion,
       output,
     });
-    while (this.results.size > MAX_STORED_RESULTS) {
-      this.results.delete(this.results.keys().next().value!);
+    this.outputLength += output.length;
+    while (this.results.size > 1 && (this.results.size > MAX_STORED_RESULTS || this.outputLength > MAX_STORED_OUTPUT_LENGTH)) {
+      this.delete(this.results.keys().next().value!);
     }
   }
 
   /**
-   * Returns every stored result for an accession number, from any extension, in the
+   * Returns every result stored in an environment for an accession number, from any extension, in the
    * shape Dragon Copilot returns them in. No result gives an empty collection.
    */
-  retrieve(accessionNumber: string): DraftReportRetrieveResponse {
+  retrieve(environmentId: string, accessionNumber: string): DraftReportRetrieveResponse {
+    const environment = environmentKey(environmentId);
     const outputs: DraftReportRetrieveOutput[] = [];
     for (const result of this.results.values()) {
-      if (result.accessionNumber !== accessionNumber) continue;
+      if (result.environmentId !== environment || result.accessionNumber !== accessionNumber) continue;
       outputs.push({
         alias: 'DraftReport',
         output: result.output,
@@ -166,6 +169,12 @@ export class DraftReportResultStore {
     return { capabilityExecutionId: randomUUID(), capabilityExecutionResults: { outputs } };
   }
 
+  /** How many identifiers are stored, in every environment. */
+  get identifierCount(): number {
+    return this.identifiers.size;
+  }
+
+  /** How many results are kept for retrieve. */
   get size(): number {
     return this.results.size;
   }
@@ -173,5 +182,14 @@ export class DraftReportResultStore {
   clearResults(): void {
     this.identifiers.clear();
     this.results.clear();
+    this.outputLength = 0;
+  }
+
+  private delete(key: string): void {
+    const stored = this.results.get(key);
+    if (stored) {
+      this.outputLength -= stored.output.length;
+      this.results.delete(key);
+    }
   }
 }

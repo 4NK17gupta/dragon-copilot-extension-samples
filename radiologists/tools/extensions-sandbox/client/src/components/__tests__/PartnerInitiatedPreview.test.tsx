@@ -33,11 +33,20 @@ describe('PartnerInitiatedPreview', () => {
   it('shows an empty AI draft shell and instructions before receiving a report', () => {
     const { container } = render(<DragonCopilotPreview toolType="partnerInitiated" result={null} />);
     expect(screen.getByRole('heading', { name: 'AI draft' })).toBeVisible();
-    expect(screen.getByRole('status')).toHaveTextContent('No draft report received yet');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No draft report received yet. Click Run Test, then send a submission to the endpoint shown in the Setup tab.',
+    );
     expect(container.querySelector('.dc-ai-draft-report')).toBeEmptyDOMElement();
     expect(container.querySelector('.dc-disclaimers')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Result source' })).toBeNull();
     expect(screen.queryByText(/Smart Impression/)).toBeNull();
+  });
+
+  it('asks only for a submission while the sandbox is listening', () => {
+    render(<DragonCopilotPreview toolType="partnerInitiated" result={null} listening />);
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('No draft report received yet. Send a submission to the endpoint shown in the Setup tab.');
+    expect(status).not.toHaveTextContent('Run Test');
   });
 
   it('renders the canonical raw draft report, not ingest metadata or JSON', () => {
