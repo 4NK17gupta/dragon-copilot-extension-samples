@@ -165,6 +165,14 @@ function stop(run: CaptureResponse): Promise<Response> {
   return fetch(`${baseUrl}${runsPath}/${run.runId}`, { method: 'DELETE' });
 }
 
+async function expectNotCapturing(response: Response): Promise<void> {
+  expect(response.status).toBe(503);
+  expect(response.headers.get('x-ms-correlation-id')).toMatch(/^[0-9a-f]{32}$/);
+  expect(await response.json()).toEqual({
+    message: "The sandbox isn't listening for requests. Click Run Test in the sandbox, then send again.",
+  });
+}
+
 describe('Simulated Dragon Copilot endpoint: answers', () => {
   it('stores a valid submission and answers 200 with no body', async () => {
     await expectStored(await submit());
@@ -676,16 +684,15 @@ describe('Run Test for partnerInitiated tools', () => {
     }
   });
 
-  it('answers when no capture is open, without recording the request', async () => {
+  it('answers 503 when no capture is open, without checking or storing the request', async () => {
     sessionStore.partnerRuns.clear();
-    await expectStored(await submit());
-    await expectReason(await submit(), 409, 'ResultAlreadyStored');
-    const unsupported = await submit('{', { contentType: 'text/plain' });
-    expect(unsupported.status).toBe(415);
+    await expectNotCapturing(await submit());
+    await expectNotCapturing(await submit('{', { contentType: 'text/plain' }));
     expect(sessionStore.getValidationResults()).toEqual([]);
-    expect(simulatedEnvironment.storedResultCount).toBe(1);
-    // A capture opened now shows only what arrives after it.
-    expect((await poll(await start())).count).toBe(0);
+    expect(simulatedEnvironment.storedResultCount).toBe(0);
+    // The turned-away request wasn't stored, so the same one is stored now.
+    await start();
+    await expectStored(await submit());
   });
 
   it('rejects a start without a manifest, for a contractBased tool, or without a matching tool', async () => {
@@ -709,7 +716,7 @@ describe('Run Test for partnerInitiated tools', () => {
     const response = await fetch(`${baseUrl}${runsPath}/${run.runId}`);
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: 'The run has stopped or was replaced.' });
-    await expectStored(await submit());
+    await expectNotCapturing(await submit());
     expect(sessionStore.getValidationResults()).toEqual([]);
   });
 
@@ -728,10 +735,7 @@ describe('Run Test for partnerInitiated tools', () => {
     if (action === 'manifest change') sessionStore.setManifest(structuredClone(fixture));
     else sessionStore.clear();
     expect((await fetch(`${baseUrl}${runsPath}/${run.runId}`)).status).toBe(404);
-    // Clearing the session unloads the manifest, so its extension is no longer installed.
-    if (action === 'manifest change') await expectStored(await submit());
-    else await expectReason(await submit(), 404, 'ExtensionNotFound');
-    expect(sessionStore.getValidationResults()).toEqual([]);
+    await expectNotCapturing(await submit());
   });
 
   it('does not record a request still being answered when its capture stops or is replaced', async () => {

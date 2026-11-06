@@ -251,6 +251,6 @@ describe('usePartnerInitiatedTest', () => {
     const { result } = await startCapture();
     fetchMock.mockRejectedValue(new Error('Network unavailable'));
     await act(async () => { await result.current.cancel(); });
-    expect(result.current.error).toContain('the sandbox may still show requests');
+    expect(result.current.error).toContain('the sandbox may still answer requests');
   });
 });

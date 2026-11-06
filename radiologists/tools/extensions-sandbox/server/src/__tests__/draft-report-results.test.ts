@@ -68,6 +68,8 @@ beforeEach(() => {
     marketplace: { publisherId: ingestExample.publisherId, offerId: ingestExample.offerId, planId: ingestExample.planId },
   });
   sessionStore.setManifest(structuredClone(partnerManifest));
+  // The endpoint answers only while the sandbox is listening.
+  sessionStore.partnerRuns.start(partnerManifest.tools[0]);
 });
 
 /** A copy of the ingest example, optionally changed by `mutate`. */
@@ -166,6 +168,7 @@ describe('Draft report retrieve simulation', () => {
     other.name = 'otherRadiologyExtension';
     other.tools[0].name = 'otherDraftTool';
     sessionStore.setManifest(other);
+    sessionStore.partnerRuns.start(other.tools[0]);
     const response = await submit(example((request) => {
       request.manifestName = 'otherRadiologyExtension';
       request.toolName = 'otherDraftTool';

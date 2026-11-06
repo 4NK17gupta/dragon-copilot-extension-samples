@@ -20,7 +20,7 @@ interface PartnerCaptureBarProps {
   className?: string;
 }
 
-const NOT_LISTENING = "The endpoint still answers, but the sandbox doesn't show requests until you click Run Test.";
+const NOT_LISTENING = 'The endpoint answers 503 until you click Run Test.';
 const requestCount = (count: number) => `${count} ${count === 1 ? 'request' : 'requests'}`;
 
 /** What screen readers announce as listening starts and stops, and as requests arrive. */

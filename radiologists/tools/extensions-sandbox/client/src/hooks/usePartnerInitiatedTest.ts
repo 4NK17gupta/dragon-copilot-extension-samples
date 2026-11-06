@@ -49,9 +49,9 @@ async function readCapture(response: Response): Promise<CaptureResponse> {
 }
 
 /**
- * Run Test for partnerInitiated tools. While a capture is open, the sandbox reports every request its
- * simulated Dragon Copilot endpoint answers. A new manifest or tool, Reset Inputs, or leaving the page
- * ends the capture.
+ * Run Test for partnerInitiated tools. A capture opens the sandbox's simulated Dragon Copilot
+ * endpoint, which answers requests only while a capture is open, and reports every request it answers.
+ * A new manifest or tool, Reset Inputs, or leaving the page ends the capture.
  */
 export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capability, toolName, onRequest }: Options) {
   const [phase, setPhase] = useState<CapturePhase>('idle');
@@ -89,7 +89,7 @@ export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capabi
         const response = await fetch(capturePath(capture.runId!), { method: 'DELETE', keepalive: true });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
       } catch (cause) {
-        reportError(`Could not stop listening; the sandbox may still show requests. ${messageOf(cause)}`);
+        reportError(`Could not stop listening; the sandbox may still answer requests. ${messageOf(cause)}`);
       } finally {
         release(capture);
       }
@@ -107,7 +107,7 @@ export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capabi
     if (capture.runId) await stopOnServer(capture);
   }, [stopOnServer]);
 
-  /** Stop capturing: the endpoint still answers, but nothing is reported until the next start. */
+  /** Stop capturing: the endpoint answers 503 until the next start. */
   const cancel = useCallback(async () => {
     const capture = active.current;
     if (capture) await end(capture, true);

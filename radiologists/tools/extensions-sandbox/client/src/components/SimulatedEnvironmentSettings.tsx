@@ -186,7 +186,7 @@ export function SimulatedEnvironmentSettings({ refreshKey = 0 }: Props) {
         <span className="visually-hidden" role="status">{copied ? 'Endpoint URL copied' : ''}</span>
       </div>
       <p className="field-description">
-        Send submissions here as you would to Dragon Copilot. The endpoint always answers, and while the sandbox is listening (Run Test), it also shows each request.
+        Send submissions here as you would to Dragon Copilot. The endpoint answers while the sandbox is listening (Run Test), and answers 503 otherwise.
         The extension installed in this environment is the loaded manifest.
       </p>
       <p className="field-description">

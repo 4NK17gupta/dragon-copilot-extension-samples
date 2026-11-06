@@ -195,8 +195,8 @@ describe('TestingPanel partner-initiated capture', () => {
     expect(screen.getByText('No draft report received yet. Send a submission to the endpoint shown in the Setup tab.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Outputs' }));
     fireEvent.click(within(bar).getByRole('button', { name: 'Stop listening' }));
-    await waitFor(() => expect(barStatus(bar)).toHaveTextContent("Stopped listening. The endpoint still answers, but the sandbox doesn't show requests until you click Run Test."));
-    expect(within(bar).getByText("The endpoint still answers, but the sandbox doesn't show requests until you click Run Test.", { selector: 'p' })).toBeInTheDocument();
+    await waitFor(() => expect(barStatus(bar)).toHaveTextContent('Stopped listening. The endpoint answers 503 until you click Run Test.'));
+    expect(within(bar).getByText('The endpoint answers 503 until you click Run Test.', { selector: 'p' })).toBeInTheDocument();
     expect(bar).toHaveTextContent('Requests 0 Showing —');
     expect(fetchMock).toHaveBeenCalledWith(capturePath, expect.objectContaining({ method: 'DELETE' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Dragon Copilot Preview' }));
@@ -300,8 +300,8 @@ describe('TestingPanel partner-initiated capture', () => {
     expect(bar).toHaveTextContent('Latest');
 
     fireEvent.click(within(bar).getByRole('button', { name: 'Stop listening' }));
-    await waitFor(() => expect(barStatus(bar)).toHaveTextContent("Stopped listening. The endpoint still answers, but the sandbox doesn't show requests until you click Run Test."));
-    expect(within(bar).getByText("The endpoint still answers, but the sandbox doesn't show requests until you click Run Test.", { selector: 'p' })).toBeInTheDocument();
+    await waitFor(() => expect(barStatus(bar)).toHaveTextContent('Stopped listening. The endpoint answers 503 until you click Run Test.'));
+    expect(within(bar).getByText('The endpoint answers 503 until you click Run Test.', { selector: 'p' })).toBeInTheDocument();
     expect(bar).toHaveTextContent('Requests 4 Showing #4 409 ResultAlreadyStored');
   });
 
@@ -331,7 +331,7 @@ describe('TestingPanel partner-initiated capture', () => {
     await nextPoll();
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Stopped listening. The run has stopped or was replaced.');
-    expect(barStatus(bar)).toHaveTextContent("Stopped listening. The endpoint still answers, but the sandbox doesn't show requests until you click Run Test.");
+    expect(barStatus(bar)).toHaveTextContent('Stopped listening. The endpoint answers 503 until you click Run Test.');
   });
 });
 

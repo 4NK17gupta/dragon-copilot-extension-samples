@@ -18,11 +18,13 @@ const MAX_CORRELATION_ID_LENGTH = 128;
 
 /**
  * A local stand-in for Dragon Copilot's API: `POST /api/v1/tenants/{customerTenantId}/environments/
- * {environmentId}/draft-report-ai-results` answers as Dragon Copilot does, apart from authentication.
- * While the sandbox is listening (Run Test), each request and its answer are also recorded for the
- * sandbox to show. Mount it before any body parser; it reads the raw body itself.
+ * {environmentId}/draft-report-ai-results` answers as Dragon Copilot does, apart from authentication,
+ * while the sandbox is listening (Run Test), and records each request and its answer for the sandbox
+ * to show. Otherwise it answers 503. Mount it before any body parser; it reads the raw body itself.
  */
 export const dragonCopilotApiRouter = Router();
+
+const NOT_CAPTURING_MESSAGE = "The sandbox isn't listening for requests. Click Run Test in the sandbox, then send again.";
 
 /** Echoes a usable correlation ID, or generates one, so every response carries one. */
 function resolveCorrelationId(value: string | undefined): string {
@@ -135,9 +137,13 @@ dragonCopilotApiRouter.use('/tenants', (req, res, next) => {
 dragonCopilotApiRouter
   .route('/tenants/:customerTenantId/environments/:environmentId/draft-report-ai-results')
   .post(async (req, res) => {
-    // Note the capture as the request arrives: one that arrives after Stop isn't recorded, and nor is
-    // one still being answered when the capture stops or is replaced.
+    // Note the capture as the request arrives: one that arrives after Stop is turned away, and one
+    // still being answered when the capture stops or is replaced isn't recorded.
     const capture = sessionStore.partnerRuns.active();
+    if (!capture) {
+      res.status(503).json({ message: NOT_CAPTURING_MESSAGE });
+      return;
+    }
     const body = await readBody(req);
     if (body === undefined) {
       // The client went away, so there's no one to answer.
@@ -168,9 +174,7 @@ dragonCopilotApiRouter
     }
 
     send(res, response);
-    if (capture) {
-      record(capture, req, res, body, response);
-    }
+    record(capture, req, res, body, response);
   })
   .all((_req, res) => {
     res.setHeader('Allow', 'POST');

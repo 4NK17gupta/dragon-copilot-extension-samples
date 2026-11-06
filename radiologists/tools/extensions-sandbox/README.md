@@ -48,8 +48,9 @@ POST http://localhost:3000/api/v1/tenants/{customerTenantId}/environments/{envir
 
 Port `4000` works too. Point your service's Dragon Copilot base URL at the sandbox and send what you
 would send to Dragon Copilot: the full request, with `manifestName`, `toolName` and `draftReport`, as
-[Submitting a result](../../partner-initiated/README.md#submitting-a-result) describes. The endpoint
-handles a submission the way Dragon Copilot does, apart from what's listed under **Not simulated** below:
+[Submitting a result](../../partner-initiated/README.md#submitting-a-result) describes. While the sandbox
+is listening (see **Run Test** below), the endpoint handles a submission the way Dragon Copilot does, apart
+from what's listed under **Not simulated** below:
 
 - the same status codes, `reason` values and bodies, with an `x-ms-correlation-id` header on every response;
 - the same validation, with the same error keys, messages and order. A missing property, a value of the
@@ -98,7 +99,8 @@ Not simulated:
   record. Use synthetic data.
 - **Failures inside Dragon Copilot**, which answer `500`.
 
-**Run Test** starts listening. While the sandbox listens, it shows each request the endpoint answers: **Results** lists the requests, newest first, with each check the endpoint made
+**Run Test** starts listening. While the sandbox listens, the endpoint answers every submission and the
+sandbox shows each one: **Results** lists the requests, newest first, with each check the endpoint made
 for the one you select; **Outputs** shows its request and response; and **Dragon Copilot Preview** shows
 the AI draft. A bar on every tab shows how many requests the sandbox has received and which one the tabs
 are showing, with its status and time; its button stops listening, or starts it again. The tabs move to
@@ -107,8 +109,8 @@ click **Show latest** in the bar. The sandbox keeps the last 20 requests since y
 and adds each one to the session's consolidated validation report.
 
 Listening stops when you click **Stop listening** or **Reset Inputs**, choose another tool, change the
-manifest or close the page. The endpoint keeps answering and storing results, but until you click
-**Run Test** again, the sandbox doesn't show the requests or add them to the validation report.
+manifest or close the page. Until you click **Run Test** again, the endpoint answers `503` with a message,
+and checks and stores nothing.
 
 For example, load the sample manifest, turn on **Extension purchased from Microsoft Marketplace** with IDs
 `101`, `202` and `303`, and click **Run Test**. Then, from the sandbox directory in PowerShell 7, send the
@@ -127,7 +129,7 @@ The run API is `POST /api/manifest/partner-initiated/start` with
 `{ "capability": "preDraftReportGeneration", "tool": "<manifest tool name>" }` to start listening,
 `GET /api/manifest/partner-initiated/{runId}?after={n}` for the requests after the `n`th, and
 `DELETE /api/manifest/partner-initiated/{runId}` to stop. Only one run listens at a time, so starting
-another replaces it. The endpoint answers without a run; a run only decides what the sandbox shows.
+another replaces it. A script that sends submissions without the UI starts a run this way first.
 The UI polls every second while listening; it does not use
 Server-Sent Events (SSE). The draft report schemas in `radiologists/partner-initiated/`
 are synced into the server before dev/build/test and packaged with the built server.
@@ -401,7 +403,7 @@ Input and response validation return `200` when valid and `422` when the payload
 
 | Method | Path                                                                                   | Description |
 |--------|----------------------------------------------------------------------------------------|-------------|
-| POST   | /api/v1/tenants/:customerTenantId/environments/:environmentId/draft-report-ai-results | Submit a draft report, as to Dragon Copilot. See [Testing partner-initiated tools](#testing-partner-initiated-tools). |
+| POST   | /api/v1/tenants/:customerTenantId/environments/:environmentId/draft-report-ai-results | Submit a draft report, as to Dragon Copilot, while the sandbox is listening; `503` otherwise. See [Testing partner-initiated tools](#testing-partner-initiated-tools). |
 
 Like Dragon Copilot, other methods on that path get `405` with `Allow: POST`, and other paths under
 `/api/v1/tenants` get `404` with no body.
