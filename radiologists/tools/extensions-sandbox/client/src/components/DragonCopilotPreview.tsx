@@ -8,7 +8,7 @@ import {
 } from '@fluentui/react-icons';
 import { buildPreview, listResultProviders } from '../preview';
 import { JsonBlockView } from './JsonBlockView';
-import { buildDraftReportPreview } from '../preview/draft-report-preview';
+import { buildDraftReportPreview, formatConfidence } from '../preview/draft-report-preview';
 import type {
   MessageBlock,
   PreviewBlock,
@@ -103,6 +103,14 @@ function PartnerInitiatedPreview({
                       <div className="dc-ai-draft-plain-text">{section.content}</div>
                     )}
                   </div>
+                  <p className="dc-ai-draft-section-meta">
+                    <span className={`dc-ai-draft-section-badge${section.aiGenerated ? ' dc-ai-draft-section-badge-ai' : ''}`}>
+                      {section.aiGenerated ? 'AI-generated' : 'Not AI-generated'}
+                    </span>
+                    <span className="dc-ai-draft-section-badge" title={`aiConfidence: ${section.aiConfidence}`}>
+                      Confidence {formatConfidence(section.aiConfidence)}
+                    </span>
+                  </p>
                 </div>
               ))}
             </div>
@@ -111,7 +119,7 @@ function PartnerInitiatedPreview({
         </>
       )}
       <p className="dc-preview-footnote">
-        Preview only — the live Dragon Copilot surface may apply additional styling. Only submitted report sections are shown; metadata remains in the Outputs tab.
+        Preview only — the live Dragon Copilot surface may apply additional styling. Only submitted report sections, each with its AI-generated flag and confidence, are shown; other metadata remains in the Outputs tab.
       </p>
     </div>
   );

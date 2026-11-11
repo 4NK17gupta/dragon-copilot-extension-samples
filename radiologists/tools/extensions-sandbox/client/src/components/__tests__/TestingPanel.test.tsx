@@ -106,14 +106,15 @@ describe('TestingPanel draft tool selection', () => {
   const info = { ...manifestInfo, toolCount: 3, capabilities: capabilities.map((cap) => cap.name) };
 
   beforeEach(() => {
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    const serveDefaults = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/api/manifest/capabilities')) return json(capabilities);
       if (url.endsWith('/preDraftReportGeneration/tools')) return json(preDraftTools);
       if (url.endsWith('/qualityCheck/tools')) {
         return json([{ name: 'qualityCheckTool', description: 'Quality check', inputs: [], outputs: [] }]);
       }
-      return json({});
+      return serveDefaults(input, init);
     });
   });
 
@@ -142,10 +143,11 @@ describe('TestingPanel draft tool selection', () => {
     );
   });
 
-  it('shows the auth note right after the partnerInitiated tool description', async () => {
+  it('shows the partnerInitiated instructions as body text and the auth disclaimer in the endpoint box', async () => {
     const authNote = 'Authentication is not simulated: the sandbox endpoint does not check the access token Dragon Copilot requires.';
     await renderPanel(info);
     expect(screen.getByRole('combobox', { name: 'Capability' })).toHaveDisplayValue('Report Optimization');
+    expect(screen.getByText('Quality check')).toHaveClass('setup-body-text');
     expect(screen.queryByText(authNote)).toBeNull();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Capability' }), {
@@ -154,9 +156,15 @@ describe('TestingPanel draft tool selection', () => {
     await waitFor(() =>
       expect(screen.getByRole('combobox', { name: 'Tool' })).toHaveValue(preDraftTools[0].name),
     );
-    const description = screen.getByText(/This tool is partnerInitiated/);
-    const note = screen.getByText(authNote);
-    expect(description.nextElementSibling).toBe(note);
+    for (const text of [preDraftTools[0].description, /This tool is partnerInitiated/]) {
+      const paragraph = screen.getByText(text);
+      expect(paragraph).toHaveClass('setup-body-text');
+      expect(paragraph).not.toHaveClass('field-description');
+    }
+    const note = await screen.findByText(authNote);
+    expect(note).toHaveAttribute('role', 'note');
+    expect(note).toHaveClass('simulated-environment-disclaimer');
+    expect(note.closest('.simulated-environment')).not.toBeNull();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Capability' }), { target: { value: 'qualityCheck' } });
     await waitFor(() =>

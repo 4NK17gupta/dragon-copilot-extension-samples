@@ -15,8 +15,14 @@ const validResult = {
   validation: { valid: true },
 };
 
-function section(name: string, content: string, sectionOrder: number, aiGenerated = true) {
-  return { name, content, sectionOrder, aiGenerated, aiConfidence: 0.95 };
+function section(name: string, content: string, sectionOrder: number, aiGenerated = true, aiConfidence = 0.95) {
+  return { name, content, sectionOrder, aiGenerated, aiConfidence };
+}
+
+/** A section's label and content, without its AI indicators. */
+function sectionText(node: Element) {
+  return (node.querySelector('.dc-ai-draft-section-title')?.textContent ?? '')
+    + node.querySelector('.dc-ai-draft-content')!.textContent;
 }
 
 function resultWithSections(sections: unknown[], format = 'plain_text') {
@@ -56,6 +62,9 @@ describe('PartnerInitiatedPreview', () => {
     expect(within(draft).getByText('CT scan performed with contrast enhancement')).toBeVisible();
     expect(within(draft).getByText('IMPRESSION:')).toBeVisible();
     expect(within(draft).getByText('No acute cardiopulmonary abnormality.')).toBeVisible();
+    expect(within(draft).getAllByText('AI-generated')).toHaveLength(2);
+    expect(within(draft).getByText('Confidence 95%')).toBeVisible();
+    expect(within(draft).getByText('Confidence 100%')).toBeVisible();
     expect(within(draft).getByText('AI-generated content may be incorrect')).toBeVisible();
     expect(within(draft).getByText('Third-party generated content')).toBeVisible();
     expect(draft).not.toHaveTextContent(example.draftReport.identifier);
@@ -87,7 +96,7 @@ describe('PartnerInitiatedPreview', () => {
     const { container } = render(
       <DragonCopilotPreview toolType="partnerInitiated" result={resultWithSections(sections)} />,
     );
-    expect([...container.querySelectorAll('.dc-ai-draft-section')].map((node) => node.textContent)).toEqual([
+    expect([...container.querySelectorAll('.dc-ai-draft-section')].map(sectionText)).toEqual([
       'Example study',
       'HISTORY:Line one\nLine two\n\n**Literal text**',
       'CUSTOM SECTION:Custom content',
@@ -134,6 +143,28 @@ describe('PartnerInitiatedPreview', () => {
     render(<DragonCopilotPreview toolType="partnerInitiated" result={resultWithSections([section('history', 'Submitted history', 1, false)])} />);
     expect(screen.getByText('Third-party generated content')).toBeVisible();
     expect(screen.queryByText('AI-generated content may be incorrect')).toBeNull();
+    expect(screen.getByText('Not AI-generated')).toBeVisible();
+    expect(screen.queryByText('AI-generated')).toBeNull();
+  });
+
+  it("shows each section's AI-generated flag and confidence", () => {
+    const { container } = render(
+      <DragonCopilotPreview
+        toolType="partnerInitiated"
+        result={resultWithSections([
+          section('title', 'Example study', 1, false, 1),
+          section('technique', 'Inline technique', 2, true, 0.955),
+          section('impression', 'Uncertain impression', 3, true, 0),
+        ])}
+      />,
+    );
+    const [title, technique, impression] = [...container.querySelectorAll<HTMLElement>('.dc-ai-draft-section')];
+    expect(within(title).getByText('Not AI-generated')).toBeVisible();
+    expect(within(title).getByText('Confidence 100%')).toHaveAttribute('title', 'aiConfidence: 1');
+    expect(within(technique).getByText('AI-generated')).toBeVisible();
+    expect(within(technique).getByText('Confidence 95.5%')).toHaveAttribute('title', 'aiConfidence: 0.955');
+    expect(within(impression).getByText('AI-generated')).toBeVisible();
+    expect(within(impression).getByText('Confidence 0%')).toBeVisible();
   });
 
   it.each([400, 413, 415, 422, 500])('does not display a rejected body for HTTP %s', (status) => {
@@ -158,6 +189,10 @@ describe('PartnerInitiatedPreview', () => {
     resultWithSections([section('findings', 'Unsupported encoding', 1)], 'html'),
     resultWithSections([{ name: 'findings', content: 'Missing order' }]),
     resultWithSections([section('findings', 'Invalid order', 0)]),
+    resultWithSections([{ name: 'findings', content: 'Missing confidence', aiGenerated: true, sectionOrder: 1 }]),
+    resultWithSections([section('findings', 'Confidence above 1', 1, true, 1.5)]),
+    resultWithSections([section('findings', 'Negative confidence', 1, true, -0.1)]),
+    resultWithSections([{ ...section('findings', 'Text confidence', 1), aiConfidence: '0.9' }]),
     resultWithSections([section('findings', 'Valid section', 1), null]),
   ])('does not display incomplete or unrecognized reports', (result) => {
     render(<DragonCopilotPreview toolType="partnerInitiated" result={result} />);

@@ -125,7 +125,7 @@ function readChoice<T extends string>(
 function requireTenantId(body: GenerateRequestBody): string {
   const tenantId = asString(body.tenantId);
   if (!tenantId) {
-    throw new BadRequestError('A tenant ID is required. Provide the Azure Entra ID tenant your extension is deployed to.');
+    throw new BadRequestError('A tenant ID is required. Provide your partner tenant ID: the Microsoft Entra tenant that owns the extension, not a customer tenant.');
   }
   return tenantId;
 }

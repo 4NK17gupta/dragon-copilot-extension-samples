@@ -232,6 +232,18 @@
   font-family: 'Cascadia Code', 'Consolas', monospace;
 }
 
+/* Advice on a check that passed */
+.check-warning-detail {
+  margin-top: 0.55rem;
+  margin-left: 2.35rem;
+  padding: 0.6rem 0.85rem;
+  background: #fff8e1;
+  border-left: 3px solid #c19c00;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.83rem;
+  color: #6d5700;
+}
+
 /* Action buttons row */
 .validation-actions {
   margin-top: 1.5rem;

@@ -69,6 +69,15 @@ differ, Dragon Copilot is right. One difference in wording is deliberate. Where 
 names one of its internal .NET types, the sandbox's message gives a short name instead, such as
 `DraftReport` or `Section`.
 
+The sandbox also explains some errors, in **Results** only; the response body keeps Dragon Copilot's
+errors as they are. After Dragon Copilot's message, a section name that isn't lower snake_case gets a
+hint suggesting one, such as `impression` for `Impression`, and an `aiConfidence` or `sectionOrder` out
+of range gets a hint naming the field, the section, the value sent and the allowed range. A
+`draftReport.aiSystemInfo.version` that isn't a semantic version, such as `v1`, is accepted, as Dragon
+Copilot accepts it, but the **Request passes validation** check shows a warning, because the schema
+documents `major.minor.patch`. Pre-release and build versions, such as `2.1.0-rc.1`, get no warning.
+**Copy Results** includes the warning.
+
 The endpoint answers for a simulated customer environment, which the **Setup** tab shows and lets you change:
 
 | Setting | Default | Notes |
@@ -99,18 +108,37 @@ Not simulated:
   record. Use synthetic data.
 - **Failures inside Dragon Copilot**, which answer `500`.
 
-**Run Test** starts listening. While the sandbox listens, the endpoint answers every submission and the
-sandbox shows each one: **Results** lists the requests, newest first, with each check the endpoint made
-for the one you select; **Outputs** shows its request and response; and **Dragon Copilot Preview** shows
-the AI draft. A bar on every tab shows how many requests the sandbox has received and which one the tabs
-are showing, with its status and time; its button stops listening, or starts it again. The tabs move to
-each new request as it arrives, unless you pick an older one in **Results**: that one stays until you
-click **Show latest** in the bar. The sandbox keeps the last 20 requests since you clicked **Run Test**,
-and adds each one to the session's consolidated validation report.
+**Run Test** starts listening. While the sandbox listens, the endpoint answers every submission, and the
+**Requests received** panel above the tabs lists each one, newest first, with its number (`#n`), time,
+capability and outcome. The tabs show the selected request: **Results** shows each check the endpoint made,
+**Outputs** shows its request and response, and **Dragon Copilot Preview** shows the AI draft. Each new
+request is selected as it arrives, and the first one opens **Results**. A badge next to **Run Test** on
+**Setup** reads **Listening** or **Not listening**. While the sandbox listens, the **Testing** heading
+shows the same badge and a **Stop listening** button on every tab; both go away when listening stops.
+The panel keeps the last 50
+entries, numbered from `#1`, and the sandbox adds each request to the session's consolidated validation
+report.
 
-Listening stops when you click **Stop listening** or **Reset Inputs**, choose another tool, change the
-manifest or close the page. Until you click **Run Test** again, the endpoint answers `503` with a message,
-and checks and stores nothing.
+To look at an earlier request, pick it in **Requests received**. That stops listening, so newer requests
+can't replace it, and switches **Setup** to the capability and tool it was sent for. Changing the
+capability or tool on **Setup** keeps the panel's entries but empties the tabs. **Clear stored results**
+on **Setup** empties the panel and the tabs; listening carries on, and the next request is `#1` again.
+Loading or editing the manifest empties the panel too.
+
+The panel also lists each **Run Test** or **Re-run Execution** of a contract-based tool, such as
+Report Optimization, numbered together with partner submissions: for example
+`#2 · time · Report Optimization · 200 OK`, or `502 DNS resolution failed` when the extension can't be
+reached. Picking one shows its results and switches **Setup** to its capability and tool with the inputs
+it ran with. It doesn't run the tool again or change the tab you're on. If the manifest no longer has that
+tool, the tabs still show the run and **Setup** stays as it is. **Re-run Execution** is available only
+while **Setup** is on the shown run's tool. The panel's history lasts for the browser session: reloading
+the page, changing the manifest or clicking **Clear stored results** clears it. A run still going when
+the manifest changes isn't added.
+
+Listening stops when you click **Stop listening** (on **Setup** or next to the **Testing** heading) or
+**Reset Inputs**, pick a request in **Requests received**, choose another tool, change the manifest or
+close the page. Until you click **Run Test**
+again, the endpoint answers `503` with a message, and checks and stores nothing.
 
 For example, load the sample manifest, turn on **Extension purchased from Microsoft Marketplace** with IDs
 `101`, `202` and `303`, and click **Run Test**. Then, from the sandbox directory in PowerShell 7, send the
@@ -135,7 +163,9 @@ Server-Sent Events (SSE). The draft report schemas in `radiologists/partner-init
 are synced into the server before dev/build/test and packaged with the built server.
 After a successful submission, **Dragon Copilot Preview** displays an **AI draft** card
 with the submitted sections sorted by `sectionOrder`, uppercase section labels,
-and AI/third-party disclaimers. A `title` section appears without a label; no
+and AI/third-party disclaimers. Each section shows whether it is AI-generated
+(`aiGenerated`) and its confidence (`aiConfidence`, as a percentage; hover for the
+raw value). A `title` section appears without a label; no
 title or clinical content is inferred from study metadata. Both `plain_text`
 (preserving line breaks) and `markdown` section content are supported. Markdown
 HTML is displayed as text, links are non-interactive, and images are represented
@@ -182,6 +212,13 @@ dialog asks the core questions from `dragon-copilot radiologists init`, either s
 template (`quality-check` for Report Optimization, `pre-draft-report` for AI Draft) or from your own
 values — extension name, tenant, and one or more tools, each with a name, description, tool type,
 output, and optional relevance filtering by body part and modality.
+
+The tenant is your **partner tenant ID**: the Microsoft Entra tenant of your organization, which owns
+the extension and issues its access tokens. It is written to the manifest as `auth.tenantId`. It is
+not the customer tenant: for a Partner Initiated tool, the customer tenant ID goes only in the
+submission URL (`/api/v1/tenants/{customerTenantId}/...`). If **Authentication** has a tenant ID, the
+field starts with it. Entering the simulated customer tenant ID (Settings) shows a warning; generation
+is still allowed, because the offline fake-issuer setup below uses one GUID for both.
 
 Each tool's **Tool type** decides what else is asked:
 
@@ -515,7 +552,9 @@ The service listens on `http://localhost:5080` (https `https://localhost:7080`) 
 2. Start the sandbox (`npm run dev` from `extensions-sandbox/`).
 3. Load the shared manifest [`extension.yaml`](../../src/samples/ContractBased/extension.yaml) — its `sampleQualityCheckTool` already targets `http://localhost:5080/v1/process`, so there is nothing to edit.
 4. Click **Validate**. The Testing panel stays closed until the manifest validates, so this step is required (uploading alone does not open it).
-5. Switch to the **Setup** tab, fill in the report inputs, and click **Run**.
+5. Switch to the **Setup** tab, fill in the report inputs, and click **Run**. Each field shows its
+   label and a placeholder; screen readers announce its schema description. **Date of Birth** uses
+   the browser's date picker and is sent as `YYYY-MM-DD`.
 6. View results in the **Results** and **Outputs** tabs.
 
 ### Example Response

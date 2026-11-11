@@ -44,6 +44,9 @@ const UTF8_CHARSETS = new Set(['utf-8']);
 const UTF16_CHARSETS = new Set(['utf-16', 'utf-16le']);
 const TOKEN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
 const MEDIA_TYPE = new RegExp(`^\\s*(${TOKEN})/(${TOKEN})\\s*$`);
+const SECTION_FIELD_KEY = /^(DraftReport\.ReportContent\.StructuredReport\.Sections)\[(\d+)\]\.(Name|AiConfidence|SectionOrder)$/;
+// major.minor.patch, with optional pre-release and build parts, as semver.org defines them.
+const SEMANTIC_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
 
 type ParsedContentType = { type: string; subtype: string; charset?: string } | 'missing' | 'invalid';
 
@@ -99,6 +102,55 @@ function reasonHint(reason: SubmissionReason, manifest: ExtensionManifest | null
 }
 
 /**
+ * Explains a validation error, for the sandbox only: Dragon Copilot's own message stays as it is.
+ * @param valueAt Looks up the value that was sent, by model state key.
+ */
+function validationHint(key: string, messages: string[], valueAt?: (key: string) => unknown): string | undefined {
+  const match = SECTION_FIELD_KEY.exec(key);
+  if (!match) {
+    return undefined;
+  }
+  const [, sectionsKey, index, field] = match;
+  const value = valueAt?.(key);
+  const sectionName = valueAt?.(`${sectionsKey}[${index}].Name`);
+  const section = `draftReport.reportContent.structuredReport.sections[${index}]`;
+  const named = typeof sectionName === 'string' && sectionName !== '' ? ` (section '${sectionName}')` : '';
+  switch (field) {
+    case 'Name': {
+      if (!messages.some((message) => message.startsWith('The field Name must match'))) {
+        return undefined;
+      }
+      const suggestion = typeof value === 'string' ? snakeCase(value) : undefined;
+      return 'Section names are lower snake_case: a lowercase letter, then lowercase letters and underscores. '
+        + (suggestion ? `Send '${suggestion}' rather than '${value as string}'.` : "Send a name such as 'impression'.");
+    }
+    case 'AiConfidence':
+      return messages.some((message) => message.startsWith('The field AiConfidence must be between'))
+        ? `${section}.aiConfidence${named} is ${String(value)}; it must be from 0 to 1, such as 0.95 for 95%.`
+        : undefined;
+    case 'SectionOrder':
+      return messages.some((message) => message.startsWith('The field SectionOrder must be between'))
+        ? `${section}.sectionOrder${named} is ${String(value)}; it must be a whole number from 1 to 2147483647, the section's position in the report.`
+        : undefined;
+  }
+  return undefined;
+}
+
+/** Turns a section name such as `Impression` or `clinicalHistory` into lower snake_case. */
+function snakeCase(name: string): string | undefined {
+  const words = name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().match(/[a-z]+/g);
+  return words ? words.join('_') : undefined;
+}
+
+/** Advises when `draftReport.aiSystemInfo.version` isn't a semantic version, which Dragon Copilot still accepts. */
+function versionWarning(version: string): string | undefined {
+  return SEMANTIC_VERSION.test(version)
+    ? undefined
+    : `draftReport.aiSystemInfo.version '${version}' isn't a semantic version in major.minor.patch form, such as 1.0.0. `
+      + 'Dragon Copilot accepts it, but the schema documents a semantic version, so send one.';
+}
+
+/**
  * Checks the Content-Type, which Dragon Copilot does before it reads the body.
  * @returns The 415 response when the Content-Type is turned away, otherwise the body's encoding.
  */
@@ -147,15 +199,17 @@ export function handleSubmission(
     : request.body;
 
   const checks: ValidationCheck[] = [{ check: CONTENT_TYPE_CHECK, passed: true }];
-  const { modelState, submission } = bindDraftReportRequest(request.customerTenantId, request.environmentId, body);
+  const { modelState, submission, valueAt } = bindDraftReportRequest(request.customerTenantId, request.environmentId, body);
   if (!submission) {
     const errors = modelState.toErrors();
     for (const [key, messages] of Object.entries(errors)) {
-      checks.push({ check: `errors[${JSON.stringify(key)}]`, passed: false, error: messages.join(' ') });
+      const hint = validationHint(key, messages, valueAt);
+      checks.push({ check: `errors[${JSON.stringify(key)}]`, passed: false, error: hint ? `${messages.join(' ')} ${hint}` : messages.join(' ') });
     }
     return { ...problem(400, errors), checks };
   }
-  checks.push({ check: VALID_REQUEST_CHECK, passed: true });
+  const warning = versionWarning(submission.aiModelVersion);
+  checks.push(warning ? { check: VALID_REQUEST_CHECK, passed: true, warning } : { check: VALID_REQUEST_CHECK, passed: true });
 
   const outcome = environment.submit(submission, manifest);
   const failedStep = outcome.status === 200 ? undefined : outcome.step;

@@ -8,21 +8,41 @@ import {
   Spinner,
   Link,
 } from '@fluentui/react-components';
-import { ArrowCounterclockwiseRegular, CodeRegular, CopyRegular, RecordStopRegular } from '@fluentui/react-icons';
+import { ArrowCounterclockwiseRegular, ArrowLeftRegular, CodeRegular, CopyRegular, RecordStopRegular } from '@fluentui/react-icons';
 import { DynamicForm, getFieldPaths, SchemaProperty } from './DynamicForm';
 import type { DynamicFormHandle } from './DynamicForm';
 import { AuthSettings } from './AuthSettings';
 import { DragonCopilotPreview } from './DragonCopilotPreview';
-import { PartnerCaptureBar } from './PartnerCaptureBar';
+import { MAX_PANEL_ENTRIES, RequestsReceivedPanel } from './RequestsReceivedPanel';
+import type { ContractEntry, RequestEntry } from './RequestsReceivedPanel';
 import { SimulatedEnvironmentSettings } from './SimulatedEnvironmentSettings';
 import { describeOutcome, formatReceivedTime } from './captureText';
 import { usePartnerInitiatedTest } from '../hooks/usePartnerInitiatedTest';
-import type { CapturedRequest, ExecuteResult, ValidationResult } from '../types/testing';
+import type { CapturePhase } from '../hooks/usePartnerInitiatedTest';
+import type { CapturedRequest, ExecuteErrorDetails, ExecuteResult, ValidationResult } from '../types/testing';
 import { PARTNER_INITIATED } from '../types/manifest';
 import type { ToolType } from '../types/manifest';
 import './ValidationResults.css';
 
-const PARTNER_INITIATED_AUTH_NOTE = 'Authentication is not simulated: the sandbox endpoint does not check the access token Dragon Copilot requires.';
+const LISTENING_LABELS: Record<CapturePhase, string> = {
+  idle: 'Not listening',
+  starting: 'Starting to listen…',
+  capturing: 'Listening',
+  stopping: 'Stopping…',
+};
+
+/** Whether the sandbox listens for partner submissions. `announce: false` keeps a second badge from repeating changes. */
+function ListeningBadge({ phase, announce = true }: { phase: CapturePhase; announce?: boolean }) {
+  return (
+    <span
+      role="status"
+      aria-live={announce ? undefined : 'off'}
+      className={phase === 'capturing' ? 'listening-badge listening-badge-on' : 'listening-badge'}
+    >
+      {LISTENING_LABELS[phase]}
+    </span>
+  );
+}
 
 interface ToolInput {
   name: string;
@@ -66,14 +86,6 @@ interface ManifestInfo {
   capabilities: string[];
 }
 
-interface ExecuteErrorDetails {
-  message: string;
-  endpoint?: string;
-  cause?: string;
-  troubleshooting?: string[];
-  sentRequest?: unknown;
-}
-
 interface InputValidationCheck {
   check: string;
   passed: boolean;
@@ -103,7 +115,6 @@ function failedCheckIndexes(validation: ValidationResult): Set<number> {
 export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelProps) {
   const capabilityId = useId();
   const toolId = useId();
-  const capturedRequestsId = useId();
   const [activeTab, setActiveTab] = useState<string>('setup');
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [selectedCapability, setSelectedCapability] = useState<string>('');
@@ -120,10 +131,30 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   const [inputValidationErrors, setInputValidationErrors] = useState<InputValidationError[] | null>(null);
   /** The captured request the Results, Outputs and Preview tabs show, for partnerInitiated tools. */
   const [shownRequest, setShownRequest] = useState<CapturedRequest | null>(null);
-  /** Whether a new request replaces the shown one. It doesn't after an older request is picked. */
-  const followLastRequest = useRef(true);
+  /** The Requests received panel's entries, newest first. */
+  const [requestEntries, setRequestEntries] = useState<RequestEntry[]>([]);
+  const [selectedEntryNumber, setSelectedEntryNumber] = useState<number | null>(null);
+  const nextEntryNumber = useRef(1);
+  /** The tool to select once the capability picked from the panel has loaded its tools. */
+  const pendingTool = useRef<string | null>(null);
+  /** The inputs to restore once Setup has switched to the tool of the contract run picked from the panel. */
+  const pendingInputs = useRef<{ toolName: string; inputs: Record<string, string> } | null>(null);
+  /** The tools of the capability picked from the panel, fetched before switching Setup to it. */
+  const prefetchedTools = useRef<{ capability: string; tools: Tool[] } | null>(null);
+  /** Changes on every panel pick, Setup change and panel reset, so a superseded pick doesn't switch Setup. */
+  const selectToken = useRef(0);
+  /** Changes whenever the panel is emptied, so a run that started before doesn't add an entry. */
+  const panelGeneration = useRef(0);
   const formRef = useRef<DynamicFormHandle>(null);
   const [partnerResultCount, setPartnerResultCount] = useState(0);
+
+  const selectedCapabilityEntry = capabilities.find((c) => c.name === selectedCapability);
+  const selectedCapabilityLabel = selectedCapabilityEntry
+    ? selectedCapabilityEntry.displayName ?? selectedCapabilityEntry.name
+    : selectedCapability;
+  /** What the sandbox is set up to test, read when a request arrives. */
+  const setupContext = useRef({ capability: '', capabilityLabel: '', toolName: '' });
+  setupContext.current = { capability: selectedCapability, capabilityLabel: selectedCapabilityLabel, toolName: selectedTool };
 
   const showCapturedRequest = useCallback((request: CapturedRequest) => {
     setResult(request);
@@ -133,16 +164,57 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     setExpandedChecks(failedCheckIndexes(request.validation));
   }, []);
 
-  const selectCapturedRequest = useCallback((request: CapturedRequest, isLast: boolean) => {
-    followLastRequest.current = isLast;
-    showCapturedRequest(request);
-  }, [showCapturedRequest]);
+  /** Empties Results, Outputs and Dragon Copilot Preview. The panel keeps its entries. */
+  const clearShownResult = useCallback(() => {
+    setSelectedEntryNumber(null);
+    setShownRequest(null);
+    setResult(null);
+    setValidationResult(null);
+    setExecuteError(null);
+    setExpandedChecks(new Set());
+  }, []);
+
+  const clearRequestEntries = useCallback(() => {
+    setRequestEntries([]);
+    nextEntryNumber.current = 1;
+    selectToken.current++;
+    panelGeneration.current++;
+    pendingInputs.current = null;
+    prefetchedTools.current = null;
+  }, []);
+
+  const addRequestEntry = useCallback((entry: RequestEntry) => {
+    setRequestEntries((entries) => [entry, ...entries].slice(0, MAX_PANEL_ENTRIES));
+    setSelectedEntryNumber(entry.number);
+  }, []);
 
   const handleCapturedRequest = useCallback((request: CapturedRequest) => {
-    if (followLastRequest.current) showCapturedRequest(request);
+    addRequestEntry({ kind: 'partner', number: nextEntryNumber.current++, request, ...setupContext.current });
+    showCapturedRequest(request);
     setPartnerResultCount((count) => count + 1);
     // Later requests update the Results tab without moving away from the tab in use.
     if (request.sequence === 1) setActiveTab('results');
+  }, [addRequestEntry, showCapturedRequest]);
+
+  /** Adds a finished Run Test of a contractBased tool to the panel. Its result is already shown. */
+  const recordContractRun = useCallback((run: Omit<ContractEntry, 'kind' | 'number' | 'receivedAt'>) => {
+    addRequestEntry({
+      kind: 'contract', number: nextEntryNumber.current++, receivedAt: new Date().toISOString(), ...run,
+    });
+  }, [addRequestEntry]);
+
+  /** Shows a panel entry's Results, Outputs and Preview. */
+  const showEntry = useCallback((entry: RequestEntry) => {
+    if (entry.kind === 'partner') {
+      showCapturedRequest(entry.request);
+      return;
+    }
+    setShownRequest(null);
+    setResult(entry.result);
+    setValidationResult(entry.validation);
+    setExpandedChecks(entry.validation ? failedCheckIndexes(entry.validation) : new Set());
+    setExecuteError(entry.error);
+    setExecutionTimeMs(entry.executionTimeMs);
   }, [showCapturedRequest]);
 
   const partnerTest = usePartnerInitiatedTest({
@@ -151,13 +223,55 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   });
   const { start: startPartnerTest, cancel: cancelPartnerTest, clear: clearPartnerTest } = partnerTest;
 
-  useEffect(() => {
-    setShownRequest(null);
-    followLastRequest.current = true;
-  }, [manifestInfo, manifestRevision, selectedCapability, selectedTool]);
+  /**
+   * Shows a panel entry and points Setup at its capability and tool, restoring a contract run's inputs.
+   * Stays on the current tab and never re-runs. Setup stays as it is when the tool is no longer in the manifest.
+   */
+  const handleSelectEntry = useCallback((number: number) => {
+    const entry = requestEntries.find((e) => e.number === number);
+    if (!entry || number === selectedEntryNumber) return;
+    if (partnerTest.isActive) void cancelPartnerTest();
+    const token = ++selectToken.current;
+    setSelectedEntryNumber(number);
+    showEntry(entry);
+    setInputValidationErrors(null);
+    const restore = entry.kind === 'contract' ? { toolName: entry.toolName, inputs: entry.inputs } : null;
+
+    if (entry.capability === selectedCapability) {
+      if (entry.toolName === selectedTool) {
+        if (restore) setInputValues({ ...restore.inputs });
+      } else if (tools.some((t) => t.name === entry.toolName)) {
+        pendingInputs.current = restore;
+        setSelectedTool(entry.toolName);
+      }
+      return;
+    }
+    if (!capabilities.some((c) => c.name === entry.capability)) return;
+    // Fetch the capability's tools first, so Setup only switches when the entry's tool is still there.
+    fetch(`/api/manifest/capabilities/${encodeURIComponent(entry.capability)}/tools`)
+      .then((res) => res.ok ? res.json() : [])
+      .then((data: Tool[]) => {
+        if (token !== selectToken.current || !data.some((t) => t.name === entry.toolName)) return;
+        prefetchedTools.current = { capability: entry.capability, tools: data };
+        pendingTool.current = entry.toolName;
+        pendingInputs.current = restore;
+        setSelectedCapability(entry.capability);
+      })
+      .catch(() => { /* Setup stays as it is. */ });
+  }, [requestEntries, selectedEntryNumber, partnerTest.isActive, cancelPartnerTest, showEntry,
+    selectedCapability, selectedTool, capabilities, tools]);
+
+  /** After Clear stored results: empties the panel and the tabs. Listening carries on. */
+  const handleStoredResultsCleared = useCallback(() => {
+    clearRequestEntries();
+    clearShownResult();
+  }, [clearRequestEntries, clearShownResult]);
 
   // Load capabilities when manifest is loaded
   useEffect(() => {
+    setSelectedEntryNumber(null);
+    setShownRequest(null);
+    clearRequestEntries();
     if (!manifestInfo) {
       setCapabilities([]);
       setSelectedCapability('');
@@ -203,7 +317,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     return () => {
       cancelled = true;
     };
-  }, [manifestInfo]);
+  }, [manifestInfo, clearRequestEntries]);
 
   // Clear stale test/validation results whenever the manifest is edited.
   // This fires on every revision bump (including text edits before debounced
@@ -215,14 +329,35 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     setExecuteError(null);
     setExpandedChecks(new Set());
     setInputValidationErrors(null);
-  }, [manifestRevision]);
+    setSelectedEntryNumber(null);
+    setShownRequest(null);
+    clearRequestEntries();
+  }, [manifestRevision, clearRequestEntries]);
 
   // Load tools when the selected capability changes. A manifest change clears
   // selectedCapability first, so this refetches even when the name is reused.
   useEffect(() => {
     setTools([]);
     setSelectedTool('');
+    const prefetched = prefetchedTools.current;
+    prefetchedTools.current = null;
     if (!selectedCapability) {
+      return;
+    }
+
+    const applyTools = (data: Tool[]) => {
+      setTools(data);
+      const wanted = pendingTool.current;
+      pendingTool.current = null;
+      if (wanted && data.some((t) => t.name === wanted)) {
+        setSelectedTool(wanted);
+      } else if (data.length > 0) {
+        setSelectedTool(data[0].name);
+      }
+    };
+
+    if (prefetched?.capability === selectedCapability) {
+      applyTools(prefetched.tools);
       return;
     }
 
@@ -230,11 +365,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     fetch(`/api/manifest/capabilities/${encodeURIComponent(selectedCapability)}/tools`)
       .then((res) => res.ok ? res.json() : [])
       .then((data: Tool[]) => {
-        if (cancelled) return;
-        setTools(data);
-        if (data.length > 0) {
-          setSelectedTool(data[0].name);
-        }
+        if (!cancelled) applyTools(data);
       })
       .catch(() => {
         if (!cancelled) setTools([]);
@@ -244,7 +375,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     };
   }, [selectedCapability]);
 
-  // Reset input values when tool changes
+  // Reset input values when tool changes, or restore those of the contract run picked from the panel
   useEffect(() => {
     const tool = tools.find((t) => t.name === selectedTool);
     if (tool) {
@@ -252,7 +383,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
       for (const path of getFieldPaths(tool.inputs)) {
         defaults[path] = '';
       }
-      setInputValues(defaults);
+      const restore = pendingInputs.current;
+      pendingInputs.current = null;
+      setInputValues(restore?.toolName === tool.name ? { ...defaults, ...restore.inputs } : defaults);
     }
   }, [selectedTool, tools]);
 
@@ -265,8 +398,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
   const handleResetInputs = useCallback(() => {
     clearPartnerTest();
-    followLastRequest.current = true;
-    setShownRequest(null);
+    clearShownResult();
     if (currentTool) {
       const defaults: Record<string, string> = {};
       for (const path of getFieldPaths(currentTool.inputs)) {
@@ -274,29 +406,37 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
       }
       setInputValues(defaults);
     }
-    setResult(null);
-    setValidationResult(null);
-    setExecuteError(null);
-    setExpandedChecks(new Set());
     setInputValidationErrors(null);
-  }, [currentTool, clearPartnerTest]);
+  }, [currentTool, clearPartnerTest, clearShownResult]);
 
   /** Run Test for a partnerInitiated tool: captures requests to the simulated endpoint. */
   const startCapture = useCallback(async () => {
-    setResult(null);
-    setValidationResult(null);
-    setShownRequest(null);
-    followLastRequest.current = true;
-    setExecuteError(null);
-    setExpandedChecks(new Set());
+    clearShownResult();
     setInputValidationErrors(null);
     await startPartnerTest();
-  }, [startPartnerTest]);
+  }, [startPartnerTest, clearShownResult]);
 
   const handleCaptureToggle = useCallback(() => {
     if (partnerTest.isActive) void cancelPartnerTest();
     else void startCapture();
   }, [partnerTest.isActive, cancelPartnerTest, startCapture]);
+
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const focusTabAfterStop = useRef(false);
+
+  const handleHeaderStop = useCallback(() => {
+    focusTabAfterStop.current = true;
+    void cancelPartnerTest();
+  }, [cancelPartnerTest]);
+
+  // The header's Stop listening button goes away once listening stops, so focus moves to the shown tab.
+  useEffect(() => {
+    if (partnerTest.isActive || !focusTabAfterStop.current) return;
+    focusTabAfterStop.current = false;
+    const focused = document.activeElement;
+    if (focused && focused !== document.body) return;
+    tabListRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+  }, [partnerTest.isActive]);
 
   const handleRunTest = useCallback(async () => {
     if (!selectedCapability || !selectedTool) return;
@@ -312,12 +452,16 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     }
 
     setIsExecuting(true);
-    setResult(null);
-    setValidationResult(null);
-    setExecuteError(null);
-    setExpandedChecks(new Set());
+    clearShownResult();
     setInputValidationErrors(null);
 
+    const run = {
+      ...setupContext.current,
+      inputs: { ...inputValues },
+      endpoint: currentTool?.endpoint,
+      toolType: currentTool?.toolType,
+    };
+    const generation = panelGeneration.current;
     const startTime = performance.now();
 
     try {
@@ -359,46 +503,52 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
         return;
       }
 
-      if (response.ok) {
-        setResult(data);
+      // The manifest changed during the run, so its result no longer applies.
+      if (generation !== panelGeneration.current) return;
 
-        if (data.validation) {
-          const valData: ValidationResult = data.validation;
-          setValidationResult(valData);
+      if (response.ok) {
+        const validation: ValidationResult | null = data.validation ?? null;
+        setResult(data);
+        if (validation) {
+          setValidationResult(validation);
           // Auto-expand failed checks
-          const failedIndices = new Set<number>();
-          valData.checks.forEach((c, i) => {
-            if (!c.passed && c.error) failedIndices.add(i);
-          });
-          setExpandedChecks(failedIndices);
+          setExpandedChecks(failedCheckIndexes(validation));
         }
+        recordContractRun({ ...run, result: data, validation, error: null, executionTimeMs: elapsedMs });
       } else {
-        setExecuteError({
+        const error: ExecuteErrorDetails = {
           message: data.error || `HTTP ${response.status}`,
+          status: response.status,
           endpoint: data.endpoint,
           cause: data.cause,
           troubleshooting: data.troubleshooting,
           sentRequest: data.sentRequest,
-        });
+        };
+        setExecuteError(error);
+        recordContractRun({ ...run, result: null, validation: null, error, executionTimeMs: elapsedMs });
       }
 
       // Always switch to Results tab after execution
       setActiveTab('results');
     } catch {
-      setExecutionTimeMs(Math.round(performance.now() - startTime));
-      setExecuteError({
+      if (generation !== panelGeneration.current) return;
+      const elapsedMs = Math.round(performance.now() - startTime);
+      const error: ExecuteErrorDetails = {
         message: 'Network error: could not reach the sandbox server.',
         cause: 'Sandbox server unreachable',
         troubleshooting: [
           'Ensure the sandbox development server is running.',
           'Check that the browser can reach the server on the expected port.',
         ],
-      });
+      };
+      setExecutionTimeMs(elapsedMs);
+      setExecuteError(error);
+      recordContractRun({ ...run, result: null, validation: null, error, executionTimeMs: elapsedMs });
       setActiveTab('results');
     } finally {
       setIsExecuting(false);
     }
-  }, [selectedCapability, selectedTool, inputValues, currentTool, startCapture]);
+  }, [selectedCapability, selectedTool, inputValues, currentTool, startCapture, clearShownResult, recordContractRun]);
 
   const toggleCheck = useCallback((index: number) => {
     setExpandedChecks((prev) => {
@@ -427,6 +577,9 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
       if (!check.passed && check.error) {
         lines.push(`    Error: ${check.error}`);
       }
+      if (check.warning) {
+        lines.push(`    Warning: ${check.warning}`);
+      }
     }
     navigator.clipboard.writeText(lines.join('\n'))
       .then(() => {
@@ -447,17 +600,52 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     );
   }
 
-  const selectedCapabilityEntry = capabilities.find((c) => c.name === selectedCapability);
-  const selectedCapabilityLabel = selectedCapabilityEntry
-    ? selectedCapabilityEntry.displayName ?? selectedCapabilityEntry.name
-    : selectedCapability;
-  const partnerRequestsNewestFirst = [...partnerTest.requests].reverse();
+  const shownEntry = requestEntries.find((e) => e.number === selectedEntryNumber);
+  const shownContractRun = shownEntry?.kind === 'contract' ? shownEntry : undefined;
+  /** The inputs of the shown result: those the shown contract run was sent with, otherwise Setup's. */
+  const shownInputs = shownContractRun?.inputs ?? inputValues;
+  const shownEndpoint = shownContractRun ? shownContractRun.endpoint : currentTool?.endpoint;
+  /** Re-running uses Setup, so it's offered only when Setup is on the tool of the shown result. */
+  const canRerun = !isPartnerInitiated && (!shownEntry || (shownContractRun !== undefined
+    && shownContractRun.capability === selectedCapability && shownContractRun.toolName === selectedTool));
+
+  /** A manual Setup change stops showing the panel entry, which belongs to the previous tool. */
+  const handleSetupChange = () => {
+    selectToken.current++;
+    pendingInputs.current = null;
+    if (selectedEntryNumber !== null) clearShownResult();
+    setResult(null);
+    setExecuteError(null);
+  };
 
   return (
     <div className="testing-panel">
-      <h2 className="panel-title">Testing</h2>
+      <div className="panel-header">
+        <h2 className="panel-title">Testing</h2>
+        {partnerTest.isActive && (
+          <div className="panel-header-listening" role="group" aria-label="Request listener">
+            <ListeningBadge phase={partnerTest.phase} announce={activeTab !== 'setup'} />
+            <Button
+              size="small"
+              appearance="secondary"
+              icon={<RecordStopRegular />}
+              onClick={handleHeaderStop}
+              disabledFocusable={partnerTest.phase === 'stopping'}
+            >
+              Stop listening
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <RequestsReceivedPanel
+        entries={requestEntries}
+        selectedNumber={selectedEntryNumber}
+        onSelect={handleSelectEntry}
+      />
 
       <TabList
+        ref={tabListRef}
         selectedValue={activeTab}
         onTabSelect={(_, data) => setActiveTab(data.value as string)}
       >
@@ -467,17 +655,6 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
         <Tab value="preview">Dragon Copilot Preview</Tab>
       </TabList>
 
-      <PartnerCaptureBar
-        phase={partnerTest.phase}
-        stopped={partnerTest.stopped}
-        count={partnerTest.count}
-        lastRequest={partnerRequestsNewestFirst[0]}
-        shownRequest={shownRequest}
-        onToggle={handleCaptureToggle}
-        onShowLatest={() => {
-          if (partnerRequestsNewestFirst.length > 0) selectCapturedRequest(partnerRequestsNewestFirst[0], true);
-        }}
-      />
       {partnerTest.error && <div className="execute-error" role="alert">{partnerTest.error}</div>}
 
       <div className="tab-content">
@@ -495,8 +672,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                 selectedOptions={[selectedCapability]}
                 onOptionSelect={(_, data) => {
                   setSelectedCapability(data.optionValue as string);
-                  setResult(null);
-                  setExecuteError(null);
+                  handleSetupChange();
                 }}
               >
                 {capabilities.map((cap) => (
@@ -515,8 +691,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                 selectedOptions={[selectedTool]}
                 onOptionSelect={(_, data) => {
                   setSelectedTool(data.optionValue as string);
-                  setResult(null);
-                  setExecuteError(null);
+                  handleSetupChange();
                 }}
               >
                 {tools.map((tool) => (
@@ -526,17 +701,20 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                 ))}
               </Dropdown>
               {currentTool && (
-                <p className="field-description">{currentTool.description}</p>
+                <p className="setup-body-text">{currentTool.description}</p>
               )}
               {isPartnerInitiated && (
                 <>
-                  <p className="field-description" role="note">
+                  <p className="setup-body-text">
                     This tool is partnerInitiated: your service submits draft reports to Dragon Copilot.
                     Click Run Test to start listening, then send submissions to the simulated endpoint below.
                     The sandbox shows each one until you stop listening.
                   </p>
-                  <p className="field-description" role="note">{PARTNER_INITIATED_AUTH_NOTE}</p>
-                  <SimulatedEnvironmentSettings refreshKey={partnerResultCount} />
+                  <SimulatedEnvironmentSettings
+                    refreshKey={partnerResultCount}
+                    requestCount={requestEntries.length}
+                    onStoredResultsCleared={handleStoredResultsCleared}
+                  />
                 </>
               )}
             </div>
@@ -566,6 +744,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
               >
                 {isExecuting ? 'Running...' : isPartnerInitiated && partnerTest.isActive ? 'Stop listening' : 'Run Test'}
               </Button>
+              {isPartnerInitiated && <ListeningBadge phase={partnerTest.phase} />}
               <Button
                 appearance="subtle"
                 icon={<ArrowCounterclockwiseRegular />}
@@ -623,37 +802,6 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
         {activeTab === 'results' && (
           <div className="results-tab">
-            {isPartnerInitiated && partnerRequestsNewestFirst.length > 0 && (
-              <section className="captured-requests" aria-labelledby={capturedRequestsId}>
-                <h3 id={capturedRequestsId} className="captured-requests-title">Requests received</h3>
-                {partnerTest.count > partnerRequestsNewestFirst.length && (
-                  <p className="captured-requests-note">
-                    Showing the last {partnerRequestsNewestFirst.length} of {partnerTest.count} requests.
-                  </p>
-                )}
-                <ul className="captured-requests-list">
-                  {partnerRequestsNewestFirst.map((request) => {
-                    const selected = request.sequence === shownRequest?.sequence;
-                    return (
-                      <li key={request.sequence}>
-                        <button
-                          type="button"
-                          className={`captured-request${selected ? ' selected' : ''}`}
-                          aria-current={selected ? 'true' : undefined}
-                          onClick={() => selectCapturedRequest(request, request.sequence === partnerRequestsNewestFirst[0].sequence)}
-                        >
-                          <span className="captured-request-sequence">#{request.sequence}</span>
-                          <span>{formatReceivedTime(request.receivedAt)}</span>
-                          <span className={request.validation.valid ? 'captured-request-pass' : 'captured-request-fail'}>
-                            {describeOutcome(request)}
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            )}
             {(result || executeError) ? (
               <div className="validation-results">
                 {/* Tool context card */}
@@ -661,11 +809,11 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                   <div className="tool-context-row">
                     <div>
                       <div className="tool-context-label">Capability</div>
-                      <div className="tool-context-value">{selectedCapabilityLabel}</div>
+                      <div className="tool-context-value">{shownEntry?.capabilityLabel ?? selectedCapabilityLabel}</div>
                     </div>
                     <div>
                       <div className="tool-context-label">Tool</div>
-                      <div className="tool-context-value">{selectedTool}</div>
+                      <div className="tool-context-value">{shownEntry?.toolName ?? selectedTool}</div>
                     </div>
                     <div>
                       <div className="tool-context-label">{shownRequest ? 'Received' : 'Execution Time'}</div>
@@ -740,6 +888,12 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                                 {check.error}
                               </div>
                             )}
+                            {check.warning && (
+                              <div className="check-warning-detail" role="note">
+                                <span aria-hidden="true">⚠ </span>
+                                {check.warning}
+                              </div>
+                            )}
                           </li>
                         );
                       })}
@@ -783,7 +937,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
                 {/* Action buttons */}
                 <div className="validation-actions">
-                  {!isPartnerInitiated && (
+                  {canRerun && (
                     <Button
                       appearance="primary"
                       icon={<CodeRegular />}
@@ -800,6 +954,13 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                     disabled={!validationResult}
                   >
                     Copy Results
+                  </Button>
+                  <Button
+                    appearance="secondary"
+                    icon={<ArrowLeftRegular />}
+                    onClick={() => setActiveTab('setup')}
+                  >
+                    Back to Setup
                   </Button>
                 </div>
 
@@ -850,14 +1011,14 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                   ].join('\n')}
                 </pre>
               </div>
-            ) : result && currentTool ? (
+            ) : result && (shownContractRun || currentTool) ? (
               <div className="outputs-display">
                 <h3 className="outputs-section-title">Request Payload</h3>
-                <div className="request-method-badge">POST {currentTool.endpoint ?? '(no endpoint)'}</div>
+                <div className="request-method-badge">POST {shownEndpoint ?? '(no endpoint)'}</div>
                 <pre className="dark-code-block">
                   {result.sentRequest
                     ? JSON.stringify(result.sentRequest, null, 2)
-                    : JSON.stringify({ endpoint: currentTool.endpoint, payload: inputValues }, null, 2)}
+                    : JSON.stringify({ endpoint: shownEndpoint, payload: shownInputs }, null, 2)}
                 </pre>
 
                 <h3 className="outputs-section-title">Response Payload</h3>
@@ -882,7 +1043,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
                 <h3 className="outputs-section-title">Response Payload <span className="sandbox-generated-label">(Sandbox-generated error context, not from extension)</span></h3>
                 <pre className="dark-code-block">{JSON.stringify({
                   errorCode: executeError.cause?.toUpperCase().replace(/\s+/g, '_') || 'MISSING_REQUIRED_INPUT',
-                  requiredMissing: Object.keys(inputValues).filter(k => !inputValues[k]),
+                  requiredMissing: Object.keys(shownInputs).filter(k => !shownInputs[k]),
                 }, null, 2)}</pre>
               </div>
             ) : (
@@ -894,10 +1055,12 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
         {activeTab === 'preview' && (
           <div className="preview-tab">
             <DragonCopilotPreview
-              toolType={currentTool?.toolType}
+              toolType={shownEntry ? (shownEntry.kind === 'partner' ? PARTNER_INITIATED : shownEntry.toolType) : currentTool?.toolType}
               result={result}
-              executionError={isPartnerInitiated && partnerTest.error && !result ? { message: partnerTest.error } : executeError}
-              toolName={selectedTool || undefined}
+              executionError={!shownContractRun && isPartnerInitiated && partnerTest.error && !result
+                ? { message: partnerTest.error }
+                : executeError}
+              toolName={shownEntry?.toolName ?? (selectedTool || undefined)}
               extensionName={manifestInfo.name}
               listening={isPartnerInitiated && partnerTest.isActive}
             />

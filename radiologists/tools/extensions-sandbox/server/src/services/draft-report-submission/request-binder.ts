@@ -232,6 +232,28 @@ export interface BindingResult {
   modelState: ModelState;
   /** The submission, when the route and body are valid. */
   submission?: DraftReportSubmission;
+  /**
+   * Looks up a bound value by its model state key, such as
+   * `DraftReport.ReportContent.StructuredReport.Sections[0].Name`. Present when the body was read.
+   */
+  valueAt?: (key: string) => unknown;
+}
+
+function boundValueAt(model: BoundObject, key: string): BoundValue | undefined {
+  let value: BoundValue | undefined = model;
+  for (const [, name, index] of key.matchAll(/([^.[\]]+)|\[(\d+)\]/g)) {
+    if (name !== undefined) {
+      value = value !== null && typeof value === 'object' && !Array.isArray(value) && Object.hasOwn(value, name)
+        ? value[name]
+        : undefined;
+    } else {
+      value = Array.isArray(value) ? value[Number(index)] : undefined;
+    }
+    if (value === undefined) {
+      return undefined;
+    }
+  }
+  return value;
 }
 
 function isWhiteSpace(value: string, index: number): boolean {
@@ -308,8 +330,12 @@ export function bindDraftReportRequest(customerTenantId: string, environmentId: 
     }
   }
 
-  if (!modelState.isValid || model === null) {
+  if (model === null) {
     return { modelState };
+  }
+  const bound = model;
+  if (!modelState.isValid) {
+    return { modelState, valueAt: (key) => boundValueAt(bound, key) };
   }
 
   const draftReport = model.DraftReport as BoundObject;
