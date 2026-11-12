@@ -294,8 +294,9 @@ function Update-Clone {
 }
 
 function Write-CommitInfo {
-    if (-not (Get-Command git -ErrorAction SilentlyContinue) -or -not (Test-Path (Join-Path $InstallDir '.git'))) { return }
+    if (-not (Get-Command git -ErrorAction SilentlyContinue) -or -not (Test-Path -LiteralPath (Join-Path $InstallDir '.git'))) { return }
     $commit = & git -C $InstallDir log -1 --format='%h %s (%cr)'
+    if ($LASTEXITCODE -ne 0) { return }
     $headBranch = & git -C $InstallDir rev-parse --abbrev-ref HEAD
     if ($LASTEXITCODE -eq 0) { Write-Info "On $headBranch at commit $commit" }
 }
@@ -311,19 +312,19 @@ function Sync-Source {
     }
 
     Write-Step "Getting the source ($Branch)"
-    $isEmptyDir = (Test-Path $InstallDir) -and -not (Get-ChildItem -Force -LiteralPath $InstallDir | Select-Object -First 1)
-    if (-not (Test-Path $InstallDir) -or $isEmptyDir) {
+    $isEmptyDir = (Test-Path -LiteralPath $InstallDir) -and -not (Get-ChildItem -Force -LiteralPath $InstallDir | Select-Object -First 1)
+    if (-not (Test-Path -LiteralPath $InstallDir) -or $isEmptyDir) {
         Write-Info "Cloning $RepoUrl into $InstallDir"
         Invoke-Native git @('clone', '--branch', $Branch, '--single-branch', '--filter=blob:none', '-c', 'core.longpaths=true', $RepoUrl, $InstallDir) 'git clone failed'
     }
-    elseif (-not (Test-Path (Join-Path $InstallDir '.git'))) {
+    elseif (-not (Test-Path -LiteralPath (Join-Path $InstallDir '.git'))) {
         throw "$InstallDir already exists and isn't a git clone. Use -InstallDir to choose another folder, or delete it."
     }
     else {
         Update-Clone
     }
 
-    if (-not (Test-Path (Join-Path $SandboxDir 'package.json'))) {
+    if (-not (Test-Path -LiteralPath (Join-Path $SandboxDir 'package.json'))) {
         throw "The Extensions Sandbox wasn't found at $SandboxDir. Check that '$Branch' is the right branch."
     }
     Write-CommitInfo
@@ -336,14 +337,14 @@ function Install-Dependencies {
     # Reinstall whenever the lock file or the Node.js version changes (native bindings are per version).
     $nodeVersion = (& node --version | Select-Object -First 1).Trim()
     $expectedStamp = '{0} {1}' -f (Get-FileHash -Algorithm SHA256 -LiteralPath $lockFile).Hash.ToLowerInvariant(), $nodeVersion
-    $currentStamp = if (Test-Path $stampFile) { (Get-Content -Raw -LiteralPath $stampFile).Trim() } else { '' }
+    $currentStamp = if (Test-Path -LiteralPath $stampFile) { (Get-Content -Raw -LiteralPath $stampFile).Trim() } else { '' }
 
     if (-not $ForceInstall -and $currentStamp -eq $expectedStamp) {
         Write-Info 'Dependencies are up to date.'
         return
     }
 
-    Push-Location $SandboxDir
+    Push-Location -LiteralPath $SandboxDir
     try {
         Invoke-Native $Npm @('ci', '--no-audit', '--no-fund') "npm ci failed. Check your network or proxy settings, then run this script again"
     }
@@ -377,7 +378,7 @@ function Start-Sandbox {
         }
     }
 
-    Push-Location $SandboxDir
+    Push-Location -LiteralPath $SandboxDir
     try {
         & $Npm run dev
         if ($LASTEXITCODE -ne 0) {

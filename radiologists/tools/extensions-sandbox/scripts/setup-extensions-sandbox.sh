@@ -81,6 +81,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# The shell doesn't expand ~ in --dir=~/..., so do it here.
+case "$INSTALL_DIR" in
+  \~) INSTALL_DIR="$HOME" ;;
+  \~/*) INSTALL_DIR="$HOME/${INSTALL_DIR#\~/}" ;;
+esac
+
 # Run from the scripts folder of a copy of the repository, without --dir, --branch or --repo,
 # the script uses that copy as it is instead of cloning. BASH_SOURCE is empty when piped to bash.
 script_path="${BASH_SOURCE[0]:-}"
@@ -244,9 +250,11 @@ update_clone() {
 }
 
 print_commit_info() {
-  if command -v git >/dev/null 2>&1 && [[ -e "$INSTALL_DIR/.git" ]]; then
-    info "On $(git -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD) at commit $(git -C "$INSTALL_DIR" log -1 --format='%h %s (%cr)')" || true
-  fi
+  if ! command -v git >/dev/null 2>&1 || [[ ! -e "$INSTALL_DIR/.git" ]]; then return 0; fi
+  local commit head_branch
+  commit="$(git -C "$INSTALL_DIR" log -1 --format='%h %s (%cr)')" || return 0
+  head_branch="$(git -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD)" || return 0
+  info "On $head_branch at commit $commit"
 }
 
 sync_source() {
