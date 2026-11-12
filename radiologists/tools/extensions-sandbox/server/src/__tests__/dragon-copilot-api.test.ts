@@ -427,6 +427,22 @@ describe('Simulated Dragon Copilot endpoint: validation', () => {
     expect(Object.keys(marketplace)).toEqual(['PlanId', 'OfferId', 'PublisherId']);
   });
 
+  it('requires imageQualityScore when qualityMetrics is sent, and accepts a request without qualityMetrics', async () => {
+    expect(await errorsOf(await submit(withExample((body) => { delete body.draftReport.qualityMetrics.imageQualityScore; })))).toEqual({
+      ...BODY_REQUIRED,
+      '$.draftReport.qualityMetrics': ["JSON deserialization for type 'QualityMetrics' was missing required properties including: 'imageQualityScore'."],
+    });
+    await expectStored(await submit(withExample((body) => { delete body.draftReport.qualityMetrics; })));
+  });
+
+  it('rejects an empty or blank aiSystemInfo.version', async () => {
+    for (const version of ['', ' ']) {
+      expect(await errorsOf(await submit(withExample((body) => { body.draftReport.aiSystemInfo.version = version; })))).toEqual({
+        'DraftReport.AISystemInfo.Version': ['The Version field is required.'],
+      });
+    }
+  });
+
   it('checks that Marketplace IDs come together only when everything else is valid', async () => {
     expect(await errorsOf(await submit(withExample((body) => { delete body.planId; })))).toEqual({
       MarketplaceExtensionIdentifiers: ['PublisherId, OfferId and PlanId must be supplied together or omitted together.'],
@@ -617,6 +633,56 @@ describe('Run Test for partnerInitiated tools', () => {
     expect(request.validation.checks[1]).toEqual({
       check: 'errors["DraftReport.ImagingStudy.AccessionNumber"]', passed: false, error: 'The AccessionNumber field is required.',
     });
+  });
+
+  it('adds hints to section name, aiConfidence and sectionOrder errors, leaving Dragon Copilot\'s errors as they are', async () => {
+    const run = await start();
+    const response = await submit(withExample((body) => {
+      const [technique, impression] = body.draftReport.reportContent.structuredReport.sections;
+      technique.name = 'clinicalHistory';
+      Object.assign(impression, { name: 'Impression', aiConfidence: 1.5, sectionOrder: 0 });
+    }));
+    const sections = 'DraftReport.ReportContent.StructuredReport.Sections';
+    const errors = {
+      [`${sections}[0].Name`]: ["The field Name must match the regular expression '^[a-z][a-z_]*$'."],
+      [`${sections}[1].Name`]: ["The field Name must match the regular expression '^[a-z][a-z_]*$'."],
+      [`${sections}[1].AiConfidence`]: ['The field AiConfidence must be between 0 and 1.'],
+      [`${sections}[1].SectionOrder`]: ['The field SectionOrder must be between 1 and 2147483647.'],
+    };
+    expect(await errorsOf(response)).toEqual(errors);
+
+    const { checks } = (await poll(run)).requests[0].validation;
+    const snakeCase = 'Section names are lower snake_case: a lowercase letter, then lowercase letters and underscores.';
+    const section = 'draftReport.reportContent.structuredReport.sections[1]';
+    expect(Object.fromEntries(checks.slice(1).map((check) => [check.check, check.error]))).toEqual({
+      [`errors["${sections}[0].Name"]`]: `${errors[`${sections}[0].Name`][0]} ${snakeCase} Send 'clinical_history' rather than 'clinicalHistory'.`,
+      [`errors["${sections}[1].Name"]`]: `${errors[`${sections}[1].Name`][0]} ${snakeCase} Send 'impression' rather than 'Impression'.`,
+      [`errors["${sections}[1].AiConfidence"]`]: `${errors[`${sections}[1].AiConfidence`][0]} `
+        + `${section}.aiConfidence (section 'Impression') is 1.5; it must be from 0 to 1, such as 0.95 for 95%.`,
+      [`errors["${sections}[1].SectionOrder"]`]: `${errors[`${sections}[1].SectionOrder`][0]} `
+        + `${section}.sectionOrder (section 'Impression') is 0; it must be a whole number from 1 to 2147483647, the section's position in the report.`,
+    });
+  });
+
+  it('warns when aiSystemInfo.version is not a semantic version, which Dragon Copilot still accepts', async () => {
+    const run = await start();
+    for (const [identifier, version] of [['v1', 'v1'], ['release', '1.0.0'], ['pre-release', '1.2.0-beta.1']]) {
+      await expectStored(await submit(withExample((body) => {
+        body.draftReport.identifier = identifier;
+        body.draftReport.aiSystemInfo.version = version;
+      })));
+    }
+    const [unversioned, ...versioned] = (await poll(run)).requests.map((request) => request.validation.checks[1]);
+    expect(unversioned).toEqual({
+      check: 'Request passes validation',
+      passed: true,
+      warning: "draftReport.aiSystemInfo.version 'v1' isn't a semantic version in major.minor.patch form, such as 1.0.0. "
+        + 'Dragon Copilot accepts it, but the schema documents a semantic version, so send one.',
+    });
+    expect(versioned).toEqual([
+      { check: 'Request passes validation', passed: true },
+      { check: 'Request passes validation', passed: true },
+    ]);
   });
 
   it('records the step a valid submission failed at, with its reason', async () => {

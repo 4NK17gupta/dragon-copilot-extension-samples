@@ -3,6 +3,7 @@ interface DraftSection {
   content: string;
   sectionOrder: number;
   aiGenerated: boolean;
+  aiConfidence: number;
 }
 
 type DraftReportPreview =
@@ -27,8 +28,14 @@ function isDraftSection(value: unknown): value is DraftSection {
     && typeof value.name === 'string' && /^[a-z][a-z_]*$/.test(value.name)
     && typeof value.content === 'string'
     && typeof value.aiGenerated === 'boolean'
+    && typeof value.aiConfidence === 'number' && value.aiConfidence >= 0 && value.aiConfidence <= 1
     && typeof value.sectionOrder === 'number'
     && Number.isInteger(value.sectionOrder) && value.sectionOrder >= 1;
+}
+
+/** Formats an `aiConfidence` between 0 and 1 as a percentage with at most one decimal place. */
+export function formatConfidence(aiConfidence: number): string {
+  return `${Math.round(aiConfidence * 1000) / 10}%`;
 }
 
 /** The server validates the full schema; these guards narrow only the display fields. */

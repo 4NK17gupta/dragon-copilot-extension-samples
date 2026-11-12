@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
-import { MAX_CAPTURED_REQUESTS, usePartnerInitiatedTest } from '../usePartnerInitiatedTest';
+import { usePartnerInitiatedTest } from '../usePartnerInitiatedTest';
 import type { CapturedRequest } from '../../types/testing';
 
 const callbackPath = '/api/v1/tenants/11111111-1111-1111-1111-111111111111/environments/22222222-2222-2222-2222-222222222222/draft-report-ai-results';
@@ -96,8 +96,6 @@ describe('usePartnerInitiatedTest', () => {
     await tick();
     expect(onRequest.mock.calls.map(([request]) => request.sequence)).toEqual([1, 2, 3]);
     expect(polls()).toEqual([`${runPath}?after=0`, `${runPath}?after=1`]);
-    expect(result.current.requests.map((request) => request.sequence)).toEqual([1, 2, 3]);
-    expect(result.current.count).toBe(3);
     expect(result.current.phase).toBe('capturing');
 
     await tick();
@@ -105,21 +103,7 @@ describe('usePartnerInitiatedTest', () => {
     expect(polls().at(-1)).toBe(`${runPath}?after=3`);
   });
 
-  it(`keeps the last ${MAX_CAPTURED_REQUESTS} requests and the sandbox's count`, async () => {
-    const { result } = await startCapture();
-    const sent = Array.from({ length: MAX_CAPTURED_REQUESTS + 5 }, (_, index) => captured(index + 1));
-    serve(sent.slice(5), sent.length);
-    await tick();
-    expect(result.current.requests.map((request) => request.sequence)).toEqual(sent.slice(5).map((request) => request.sequence));
-    expect(result.current.count).toBe(MAX_CAPTURED_REQUESTS + 5);
-
-    serve([captured(MAX_CAPTURED_REQUESTS + 6)], MAX_CAPTURED_REQUESTS + 6);
-    await tick();
-    expect(result.current.requests).toHaveLength(MAX_CAPTURED_REQUESTS);
-    expect(result.current.requests.at(-1)?.sequence).toBe(MAX_CAPTURED_REQUESTS + 6);
-  });
-
-  it('stops capturing, keeps the requests, and shows that it stopped', async () => {
+  it('stops capturing and polling', async () => {
     const { result } = await startCapture();
     serve([captured(1)]);
     await tick();
@@ -127,14 +111,12 @@ describe('usePartnerInitiatedTest', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(runPath, expect.objectContaining({ method: 'DELETE' }));
     expect(result.current.phase).toBe('idle');
-    expect(result.current.stopped).toBe(true);
-    expect(result.current.requests).toHaveLength(1);
     const callCount = fetchMock.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
     expect(fetchMock).toHaveBeenCalledTimes(callCount);
   });
 
-  it('starts again with no requests', async () => {
+  it('starts again after stopping, reading the new capture from the start', async () => {
     const { result } = await startCapture();
     serve([captured(1)]);
     await tick();
@@ -142,9 +124,8 @@ describe('usePartnerInitiatedTest', () => {
     await act(async () => { await result.current.start(); });
 
     expect(result.current.phase).toBe('capturing');
-    expect(result.current.stopped).toBe(false);
-    expect(result.current.requests).toEqual([]);
-    expect(result.current.count).toBe(0);
+    await tick();
+    expect(polls().at(-1)).toBe(`${runPath}?after=0`);
   });
 
   it('stops a pending start once its capture ID arrives instead of leaving the endpoint open', async () => {
@@ -165,7 +146,6 @@ describe('usePartnerInitiatedTest', () => {
     expect(fetchMock).toHaveBeenCalledWith(runPath, expect.objectContaining({ method: 'DELETE' }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.current.phase).toBe('idle');
-    expect(result.current.stopped).toBe(true);
   });
 
   it.each([
@@ -173,7 +153,7 @@ describe('usePartnerInitiatedTest', () => {
     { toolName: 'anotherTool' },
     { capability: 'qualityCheck' },
     { manifestInfo: null },
-  ])('ends the capture and forgets its requests when the context changes: %j', async (change) => {
+  ])('ends the capture when the context changes: %j', async (change) => {
     const { result, rerender, onRequest } = await startCapture();
     serve([captured(1)]);
     await tick();
@@ -181,13 +161,10 @@ describe('usePartnerInitiatedTest', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(runPath, expect.objectContaining({ method: 'DELETE' }));
     expect(result.current.phase).toBe('idle');
-    expect(result.current.stopped).toBe(false);
-    expect(result.current.requests).toEqual([]);
-    expect(result.current.count).toBe(0);
     expect(onRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('ends the capture and forgets its requests on clear', async () => {
+  it('ends the capture on clear', async () => {
     const { result } = await startCapture();
     serve([captured(1)]);
     await tick();
@@ -195,9 +172,6 @@ describe('usePartnerInitiatedTest', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(runPath, expect.objectContaining({ method: 'DELETE' }));
     expect(result.current.phase).toBe('idle');
-    expect(result.current.stopped).toBe(false);
-    expect(result.current.requests).toEqual([]);
-    expect(result.current.count).toBe(0);
   });
 
   it('stops capturing when the page is hidden, and when the component unmounts', async () => {
@@ -222,7 +196,6 @@ describe('usePartnerInitiatedTest', () => {
     await act(async () => { await result.current.cancel(); });
     await act(async () => { resolvePoll(json({ ...capture, count: 1, requests: [captured(1)] })); });
     expect(onRequest).not.toHaveBeenCalled();
-    expect(result.current.requests).toEqual([]);
     expect(result.current.phase).toBe('idle');
   });
 
@@ -232,7 +205,6 @@ describe('usePartnerInitiatedTest', () => {
     await act(async () => { await result.current.start(); });
     expect(result.current.error).toBe('Could not start listening. No manifest loaded.');
     expect(result.current.phase).toBe('idle');
-    expect(result.current.stopped).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -244,7 +216,6 @@ describe('usePartnerInitiatedTest', () => {
     await tick();
     expect(result.current.error).toBe('Stopped listening. The run has stopped or was replaced.');
     expect(result.current.phase).toBe('idle');
-    expect(result.current.stopped).toBe(true);
   });
 
   it('reports a failed stop rather than claiming the endpoint stopped answering', async () => {
