@@ -496,6 +496,15 @@ body {
   font-size: 0.85rem;
 }
 
+.run-not-kept {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #f0f0f0;
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+
 /* Results tab */
 .result-display {
   border: 1px solid var(--color-border);

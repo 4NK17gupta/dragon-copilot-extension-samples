@@ -133,7 +133,9 @@ it ran with. It doesn't run the tool again or change the tab you're on. If the m
 tool, the tabs still show the run and **Setup** stays as it is. **Re-run Execution** is available only
 while **Setup** is on the shown run's tool. The panel's history lasts for the browser session: reloading
 the page, changing the manifest or clicking **Clear stored results** clears it. A run still going when
-the manifest changes isn't added.
+the manifest changes or you click **Clear stored results** isn't added; after a clear, a short message
+says so. While a run is going, the panel can't be used, so the tabs always show
+that run's result when it finishes.
 
 Listening stops when you click **Stop listening** (on **Setup** or next to the **Testing** heading) or
 **Reset Inputs**, pick a request in **Requests received**, choose another tool, change the manifest or

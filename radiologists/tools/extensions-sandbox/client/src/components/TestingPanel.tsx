@@ -145,6 +145,10 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   const selectToken = useRef(0);
   /** Changes whenever the panel is emptied, so a run that started before doesn't add an entry. */
   const panelGeneration = useRef(0);
+  /** The panel generation Clear stored results last started, to tell it apart from a manifest change. */
+  const clearedGeneration = useRef(-1);
+  /** Whether the last Run Test finished after Clear stored results, so it wasn't kept. */
+  const [runNotKept, setRunNotKept] = useState(false);
   const formRef = useRef<DynamicFormHandle>(null);
   const [partnerResultCount, setPartnerResultCount] = useState(0);
 
@@ -181,11 +185,13 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     panelGeneration.current++;
     pendingInputs.current = null;
     prefetchedTools.current = null;
+    setRunNotKept(false);
   }, []);
 
   const addRequestEntry = useCallback((entry: RequestEntry) => {
     setRequestEntries((entries) => [entry, ...entries].slice(0, MAX_PANEL_ENTRIES));
     setSelectedEntryNumber(entry.number);
+    setRunNotKept(false);
   }, []);
 
   const handleCapturedRequest = useCallback((request: CapturedRequest) => {
@@ -195,13 +201,6 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     // Later requests update the Results tab without moving away from the tab in use.
     if (request.sequence === 1) setActiveTab('results');
   }, [addRequestEntry, showCapturedRequest]);
-
-  /** Adds a finished Run Test of a contractBased tool to the panel. Its result is already shown. */
-  const recordContractRun = useCallback((run: Omit<ContractEntry, 'kind' | 'number' | 'receivedAt'>) => {
-    addRequestEntry({
-      kind: 'contract', number: nextEntryNumber.current++, receivedAt: new Date().toISOString(), ...run,
-    });
-  }, [addRequestEntry]);
 
   /** Shows a panel entry's Results, Outputs and Preview. */
   const showEntry = useCallback((entry: RequestEntry) => {
@@ -216,6 +215,18 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     setExecuteError(entry.error);
     setExecutionTimeMs(entry.executionTimeMs);
   }, [showCapturedRequest]);
+
+  /**
+   * Adds a finished Run Test of a contractBased tool to the panel and shows it. Showing the entry replaces
+   * all of the shown state at once, so nothing shown earlier is left mixed in with the run's result.
+   */
+  const recordContractRun = useCallback((run: Omit<ContractEntry, 'kind' | 'number' | 'receivedAt'>) => {
+    const entry: ContractEntry = {
+      kind: 'contract', number: nextEntryNumber.current++, receivedAt: new Date().toISOString(), ...run,
+    };
+    addRequestEntry(entry);
+    showEntry(entry);
+  }, [addRequestEntry, showEntry]);
 
   const partnerTest = usePartnerInitiatedTest({
     manifestInfo, manifestRevision, capability: selectedCapability, toolName: selectedTool,
@@ -264,6 +275,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
   /** After Clear stored results: empties the panel and the tabs. Listening carries on. */
   const handleStoredResultsCleared = useCallback(() => {
     clearRequestEntries();
+    clearedGeneration.current = panelGeneration.current;
     clearShownResult();
   }, [clearRequestEntries, clearShownResult]);
 
@@ -440,6 +452,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
 
   const handleRunTest = useCallback(async () => {
     if (!selectedCapability || !selectedTool) return;
+    setRunNotKept(false);
 
     if (currentTool?.toolType === PARTNER_INITIATED) {
       await startCapture();
@@ -462,6 +475,13 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
       toolType: currentTool?.toolType,
     };
     const generation = panelGeneration.current;
+    /** Whether the manifest changed or the panel was cleared during the run, so its result no longer applies. */
+    const isDiscarded = () => {
+      if (generation === panelGeneration.current) return false;
+      // Only a clear is reported; a manifest change already resets the whole panel.
+      if (panelGeneration.current === clearedGeneration.current) setRunNotKept(true);
+      return true;
+    };
     const startTime = performance.now();
 
     try {
@@ -479,8 +499,6 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
       });
 
       const elapsedMs = Math.round(performance.now() - startTime);
-      setExecutionTimeMs(elapsedMs);
-
       const data = await response.json();
 
       // 422 – inputs did not match their declared schema, so no call was made.
@@ -503,17 +521,10 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
         return;
       }
 
-      // The manifest changed during the run, so its result no longer applies.
-      if (generation !== panelGeneration.current) return;
+      if (isDiscarded()) return;
 
       if (response.ok) {
         const validation: ValidationResult | null = data.validation ?? null;
-        setResult(data);
-        if (validation) {
-          setValidationResult(validation);
-          // Auto-expand failed checks
-          setExpandedChecks(failedCheckIndexes(validation));
-        }
         recordContractRun({ ...run, result: data, validation, error: null, executionTimeMs: elapsedMs });
       } else {
         const error: ExecuteErrorDetails = {
@@ -524,14 +535,13 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
           troubleshooting: data.troubleshooting,
           sentRequest: data.sentRequest,
         };
-        setExecuteError(error);
         recordContractRun({ ...run, result: null, validation: null, error, executionTimeMs: elapsedMs });
       }
 
       // Always switch to Results tab after execution
       setActiveTab('results');
     } catch {
-      if (generation !== panelGeneration.current) return;
+      if (isDiscarded()) return;
       const elapsedMs = Math.round(performance.now() - startTime);
       const error: ExecuteErrorDetails = {
         message: 'Network error: could not reach the sandbox server.',
@@ -541,8 +551,6 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
           'Check that the browser can reach the server on the expected port.',
         ],
       };
-      setExecutionTimeMs(elapsedMs);
-      setExecuteError(error);
       recordContractRun({ ...run, result: null, validation: null, error, executionTimeMs: elapsedMs });
       setActiveTab('results');
     } finally {
@@ -616,6 +624,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
     if (selectedEntryNumber !== null) clearShownResult();
     setResult(null);
     setExecuteError(null);
+    setRunNotKept(false);
   };
 
   return (
@@ -642,6 +651,7 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
         entries={requestEntries}
         selectedNumber={selectedEntryNumber}
         onSelect={handleSelectEntry}
+        disabled={isExecuting}
       />
 
       <TabList
@@ -656,6 +666,11 @@ export function TestingPanel({ manifestInfo, manifestRevision }: TestingPanelPro
       </TabList>
 
       {partnerTest.error && <div className="execute-error" role="alert">{partnerTest.error}</div>}
+      {runNotKept && (
+        <div className="run-not-kept" role="status">
+          The run finished after the results were cleared, so it wasn't kept.
+        </div>
+      )}
 
       <div className="tab-content">
         {activeTab === 'setup' && (

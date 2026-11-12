@@ -710,6 +710,7 @@ describe('TestingPanel Run Test history', () => {
 
   const executeCalls = () => fetchMock.mock.calls.filter(([url]) => url === '/api/manifest/execute').length;
   const reportText = () => screen.getByPlaceholderText('Enter Report Text');
+  const runNotKept = "The run finished after the results were cleared, so it wasn't kept.";
 
   /** Runs Report Optimization from Setup with the given report text. */
   async function runQualityCheck(text: string) {
@@ -857,6 +858,25 @@ describe('TestingPanel Run Test history', () => {
     expect(options[49]).toMatch(/^#2 ·/);
   }, 60_000);
 
+  it('disables the panel while a run is in flight, then shows the new run', async () => {
+    await renderPanel();
+    await runQualityCheck('First report');
+    expect(requestsDropdown()).toBeEnabled();
+
+    let finishRun!: () => void;
+    executeGate = new Promise((resolve) => { finishRun = resolve; });
+    extensionReachable = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Re-run Execution' }));
+    await waitFor(() => expect(executeCalls()).toBe(2));
+    expect(requestsDropdown()).toBeDisabled();
+
+    finishRun();
+    await waitFor(() => expect(requestsDropdown()).toHaveTextContent(/^#2 · .+ · Report Optimization · 502 DNS resolution failed$/));
+    expect(requestsDropdown()).toBeEnabled();
+    expect(screen.getByText('Could not reach the extension.', { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText('All 1 checks passed — response matches the expected schema.')).toBeNull();
+  });
+
   it('leaves out a run that was still going when the manifest changed', async () => {
     let finishRun!: () => void;
     executeGate = new Promise((resolve) => { finishRun = resolve; });
@@ -875,5 +895,27 @@ describe('TestingPanel Run Test history', () => {
     await screen.findByRole('button', { name: 'Run Test' });
     expectEmptyPanel();
     expect(screen.getByRole('tab', { name: 'Setup' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByText(runNotKept)).toBeNull();
+  });
+
+  it('leaves out a run that was still going on Clear stored results, and says so', async () => {
+    await renderPanel();
+    await runQualityCheck('First report');
+
+    let finishRun!: () => void;
+    executeGate = new Promise((resolve) => { finishRun = resolve; });
+    fireEvent.click(screen.getByRole('button', { name: 'Re-run Execution' }));
+    await waitFor(() => expect(executeCalls()).toBe(2));
+    await switchCapability('Draft Report Generation', toolName);
+    fireEvent.click(await screen.findByText('Clear stored results'));
+    await waitFor(() => expectEmptyPanel());
+
+    finishRun();
+    expect(await screen.findByText(runNotKept)).toHaveAttribute('role', 'status');
+    expectEmptyPanel();
+
+    // A Setup change hides the message.
+    await switchCapability('Report Optimization', 'qualityCheckTool');
+    expect(screen.queryByText(runNotKept)).toBeNull();
   });
 });

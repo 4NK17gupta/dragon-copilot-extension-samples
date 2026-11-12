@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CapturedRequest } from '../types/testing';
 
-/** The most requests the sandbox keeps for a capture. */
-export const MAX_CAPTURED_REQUESTS = 20;
 const POLL_INTERVAL_MS = 1000;
 const RUNS_PATH = '/api/manifest/partner-initiated';
 
@@ -11,8 +9,6 @@ export type CapturePhase = 'idle' | 'starting' | 'capturing' | 'stopping';
 interface Capture {
   /** Set once the capture is ending, so late responses are ignored. */
   ended: boolean;
-  /** Whether the sandbox shows that capturing stopped once the capture has ended. */
-  showStopped: boolean;
   runId?: string;
   lastSequence: number;
   timer?: ReturnType<typeof setTimeout>;
@@ -55,9 +51,6 @@ async function readCapture(response: Response): Promise<CaptureResponse> {
  */
 export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capability, toolName, onRequest }: Options) {
   const [phase, setPhase] = useState<CapturePhase>('idle');
-  const [stopped, setStopped] = useState(false);
-  const [count, setCount] = useState(0);
-  const [requests, setRequests] = useState<CapturedRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const active = useRef<Capture | null>(null);
   const mounted = useRef(true);
@@ -77,10 +70,7 @@ export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capabi
     capture.pollController?.abort();
     if (active.current !== capture) return;
     active.current = null;
-    if (mounted.current) {
-      setPhase('idle');
-      if (capture.showStopped) setStopped(true);
-    }
+    if (mounted.current) setPhase('idle');
   }, []);
 
   const stopOnServer = useCallback((capture: Capture): Promise<void> => {
@@ -98,8 +88,7 @@ export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capabi
   }, [release, reportError]);
 
   /** Ends a capture. A pending start finishes first, so that its capture is stopped too. */
-  const end = useCallback(async (capture: Capture, showStopped: boolean) => {
-    capture.showStopped = (capture.ended ? capture.showStopped : true) && showStopped;
+  const end = useCallback(async (capture: Capture) => {
     capture.ended = true;
     clearTimeout(capture.timer);
     capture.pollController?.abort();
@@ -110,16 +99,13 @@ export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capabi
   /** Stop capturing: the endpoint answers 503 until the next start. */
   const cancel = useCallback(async () => {
     const capture = active.current;
-    if (capture) await end(capture, true);
+    if (capture) await end(capture);
   }, [end]);
 
-  /** Ends any capture and forgets its requests. */
+  /** Ends any capture and clears its error. */
   const clear = useCallback(() => {
     const capture = active.current;
-    if (capture) void end(capture, false);
-    setStopped(false);
-    setRequests([]);
-    setCount(0);
+    if (capture) void end(capture);
     setError(null);
   }, [end]);
 
@@ -129,20 +115,17 @@ export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capabi
   }, []);
 
   useEffect(() => {
-    setStopped(false);
-    setRequests([]);
-    setCount(0);
     setError(null);
     return () => {
       const capture = active.current;
-      if (capture) void end(capture, false);
+      if (capture) void end(capture);
     };
   }, [manifestInfo, manifestRevision, capability, toolName, end]);
 
   useEffect(() => {
     const handlePageHide = () => {
       const capture = active.current;
-      if (capture) void end(capture, true);
+      if (capture) void end(capture);
     };
     window.addEventListener('pagehide', handlePageHide);
     return () => window.removeEventListener('pagehide', handlePageHide);
@@ -150,12 +133,9 @@ export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capabi
 
   const start = useCallback(async () => {
     if (active.current) return;
-    const capture: Capture = { ended: false, showStopped: true, lastSequence: 0 };
+    const capture: Capture = { ended: false, lastSequence: 0 };
     active.current = capture;
     setError(null);
-    setStopped(false);
-    setRequests([]);
-    setCount(0);
     setPhase('starting');
 
     const poll = async (): Promise<void> => {
@@ -175,15 +155,13 @@ export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capabi
         const received = data.requests.filter((request) => request.sequence > capture.lastSequence);
         if (received.length > 0) {
           capture.lastSequence = Math.max(...received.map((request) => request.sequence));
-          setRequests((current) => [...current, ...received].slice(-MAX_CAPTURED_REQUESTS));
           for (const request of received) onRequestRef.current(request);
         }
-        setCount(data.count);
         capture.timer = setTimeout(() => { void poll(); }, POLL_INTERVAL_MS);
       } catch (cause) {
         if (capture.ended) return;
         reportError(`Stopped listening. ${messageOf(cause)}`);
-        await end(capture, true);
+        await end(capture);
       }
     };
 
@@ -207,7 +185,6 @@ export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capabi
       if (!capture.ended) {
         reportError(`Could not start listening. ${messageOf(cause)}`);
         capture.ended = true;
-        capture.showStopped = false;
       }
       if (capture.runId) await stopOnServer(capture);
       else release(capture);
@@ -217,12 +194,6 @@ export function usePartnerInitiatedTest({ manifestInfo, manifestRevision, capabi
   return {
     phase,
     isActive: phase !== 'idle',
-    /** True after a capture stopped, until the next start, Reset Inputs, or a new manifest or tool. */
-    stopped,
-    /** How many requests the capture has answered, including any no longer kept. */
-    count,
-    /** The capture's last {@link MAX_CAPTURED_REQUESTS} requests, oldest first. */
-    requests,
     error,
     start,
     cancel,

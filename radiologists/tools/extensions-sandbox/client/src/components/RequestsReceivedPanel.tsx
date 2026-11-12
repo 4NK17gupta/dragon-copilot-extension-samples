@@ -69,13 +69,15 @@ interface RequestsReceivedPanelProps {
   /** The number of the entry the Results, Outputs and Dragon Copilot Preview tabs show. */
   selectedNumber: number | null;
   onSelect: (number: number) => void;
+  /** True while a Run Test is in flight, so that no other entry can be shown before its result arrives. */
+  disabled?: boolean;
 }
 
 /**
  * Lists the requests the sandbox has received, above the testing tabs so that any of them can be
  * picked from any tab.
  */
-export function RequestsReceivedPanel({ entries, selectedNumber, onSelect }: RequestsReceivedPanelProps) {
+export function RequestsReceivedPanel({ entries, selectedNumber, onSelect, disabled = false }: RequestsReceivedPanelProps) {
   const labelId = useId();
   const dropdownId = useId();
   const selected = entries.find((entry) => entry.number === selectedNumber);
@@ -89,7 +91,7 @@ export function RequestsReceivedPanel({ entries, selectedNumber, onSelect }: Req
         id={dropdownId}
         className="requests-panel-dropdown"
         placeholder={entries.length === 0 ? 'No requests yet' : 'Select a request'}
-        disabled={entries.length === 0}
+        disabled={disabled || entries.length === 0}
         value={selected ? entryLabel(selected) : ''}
         selectedOptions={selected ? [String(selected.number)] : []}
         onOptionSelect={(_, data) => {
