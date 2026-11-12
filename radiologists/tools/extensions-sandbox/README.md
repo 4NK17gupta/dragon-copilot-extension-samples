@@ -15,6 +15,24 @@ A local development environment for testing and validating Microsoft Dragon Copi
 
 ## Quick Start
 
+To install and start the sandbox in one step, run a [setup script](scripts/README.md) from this folder. It
+checks the prerequisites, installs the dependencies and opens the sandbox in your browser:
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-extensions-sandbox.ps1
+```
+
+```bash
+# macOS, Linux and WSL
+bash scripts/setup-extensions-sandbox.sh
+```
+
+The [setup scripts README](scripts/README.md) also explains how to download the code and set up the sandbox
+from just the script.
+
+Or do it by hand:
+
 ```bash
 # 1. Navigate to the sandbox directory
 cd radiologists/tools/extensions-sandbox
@@ -321,6 +339,9 @@ extensions-sandbox/
 │   │   ├── input-parsing.ts  # Parses/groups flat form inputs into nested objects
 │   │   └── __tests__/    # Unit tests
 │   └── tsconfig.json     # TypeScript configuration
+├── scripts/              # One-step setup scripts (see scripts/README.md)
+│   ├── setup-extensions-sandbox.ps1  # Windows
+│   └── setup-extensions-sandbox.sh   # macOS, Linux and WSL
 └── server/               # Express backend
     ├── scripts/
     │   ├── generate-output-schemas.ts  # Generates JSON Schemas from OpenAPI spec
