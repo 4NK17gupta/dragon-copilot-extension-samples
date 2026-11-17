@@ -167,6 +167,22 @@ describe('PartnerInitiatedPreview', () => {
     expect(within(impression).getByText('Confidence 0%')).toBeVisible();
   });
 
+  it('displays numbers written as strings, which the endpoint accepts', () => {
+    const { container } = render(
+      <DragonCopilotPreview
+        toolType="partnerInitiated"
+        result={resultWithSections([
+          { ...section('impression', 'Quoted impression', 1), aiConfidence: '0.9', sectionOrder: '2' },
+          { ...section('findings', 'Quoted findings', 1), sectionOrder: '1' },
+        ])}
+      />,
+    );
+    const [findings, impression] = [...container.querySelectorAll<HTMLElement>('.dc-ai-draft-section')];
+    expect(sectionText(findings)).toContain('Quoted findings');
+    expect(sectionText(impression)).toContain('Quoted impression');
+    expect(within(impression).getByText('Confidence 90%')).toHaveAttribute('title', 'aiConfidence: 0.9');
+  });
+
   it.each([400, 413, 415, 422, 500])('does not display a rejected body for HTTP %s', (status) => {
     const { container } = render(
       <DragonCopilotPreview toolType="partnerInitiated" result={{ ...validResult, status }} />,
@@ -192,7 +208,7 @@ describe('PartnerInitiatedPreview', () => {
     resultWithSections([{ name: 'findings', content: 'Missing confidence', aiGenerated: true, sectionOrder: 1 }]),
     resultWithSections([section('findings', 'Confidence above 1', 1, true, 1.5)]),
     resultWithSections([section('findings', 'Negative confidence', 1, true, -0.1)]),
-    resultWithSections([{ ...section('findings', 'Text confidence', 1), aiConfidence: '0.9' }]),
+    resultWithSections([{ ...section('findings', 'Empty confidence', 1), aiConfidence: '' }]),
     resultWithSections([section('findings', 'Valid section', 1), null]),
   ])('does not display incomplete or unrecognized reports', (result) => {
     render(<DragonCopilotPreview toolType="partnerInitiated" result={result} />);

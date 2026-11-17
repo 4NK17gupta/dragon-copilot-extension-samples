@@ -23,8 +23,8 @@
 set -euo pipefail
 
 INSTALL_DIR="${HOME}/dragon-copilot-extension-samples"
-REPO_URL="https://github.com/4NK17gupta/dragon-copilot-extension-samples.git"
-BRANCH="Partner"
+REPO_URL="https://github.com/microsoft/dragon-copilot-extension-samples.git"
+BRANCH="main"
 SOURCE_OPTION_GIVEN=0
 USE_SCRIPT_REPO=0
 SKIP_UPDATE=0
@@ -55,7 +55,7 @@ Options:
   -h, --help         Show this help
 
 Example (another branch, in its own folder):
-  $0 --branch AIDraft_QualityCheck_UXChanges --dir ~/dragon-samples-aidraft
+  $0 --branch <branch> --dir ~/dragon-samples-other
 EOF
 }
 

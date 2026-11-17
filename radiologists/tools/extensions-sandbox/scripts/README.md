@@ -17,8 +17,8 @@ in your browser.
    - **Run from a copy of the repository you already have** (a clone, or a ZIP you downloaded and
      extracted), it uses that copy as it is. Nothing is downloaded, and your branch and files aren't
      changed.
-   - **Run on its own** (for example, after downloading just the script), it clones the `Partner`
-     branch of <https://github.com/4NK17gupta/dragon-copilot-extension-samples> into a
+   - **Run on its own** (for example, after downloading just the script), it clones the `main`
+     branch of <https://github.com/microsoft/dragon-copilot-extension-samples> into a
      `dragon-copilot-extension-samples` folder in your home folder. On later runs, it updates that
      clone to the latest commit.
 3. Installs the sandbox's dependencies with `npm ci`. The first time, this takes several minutes.
@@ -51,7 +51,7 @@ Open **PowerShell** (from the Start menu) and run:
 
 ```powershell
 cd $HOME
-Invoke-WebRequest -UseBasicParsing -OutFile setup-extensions-sandbox.ps1 -Uri https://raw.githubusercontent.com/4NK17gupta/dragon-copilot-extension-samples/Partner/radiologists/tools/extensions-sandbox/scripts/setup-extensions-sandbox.ps1
+Invoke-WebRequest -UseBasicParsing -OutFile setup-extensions-sandbox.ps1 -Uri https://raw.githubusercontent.com/microsoft/dragon-copilot-extension-samples/main/radiologists/tools/extensions-sandbox/scripts/setup-extensions-sandbox.ps1
 powershell -ExecutionPolicy Bypass -File .\setup-extensions-sandbox.ps1
 ```
 
@@ -71,7 +71,7 @@ Open a terminal and run:
 
 ```bash
 cd ~
-curl -fsSLO https://raw.githubusercontent.com/4NK17gupta/dragon-copilot-extension-samples/Partner/radiologists/tools/extensions-sandbox/scripts/setup-extensions-sandbox.sh
+curl -fsSLO https://raw.githubusercontent.com/microsoft/dragon-copilot-extension-samples/main/radiologists/tools/extensions-sandbox/scripts/setup-extensions-sandbox.sh
 bash setup-extensions-sandbox.sh
 ```
 
@@ -134,8 +134,8 @@ script open while you use the sandbox. To learn how to load a manifest and test 
 | Windows (`.ps1`) | macOS, Linux and WSL (`.sh`) | What it does |
 | --- | --- | --- |
 | `-InstallDir <folder>` | `--dir <folder>` | Folder to clone the repository into. Default: `dragon-copilot-extension-samples` in your home folder. |
-| `-Branch <name>` | `--branch <name>` | Branch to set up. Default: `Partner`. |
-| `-RepoUrl <url>` | `--repo <url>` | Repository to clone. Default: `https://github.com/4NK17gupta/dragon-copilot-extension-samples.git`. |
+| `-Branch <name>` | `--branch <name>` | Branch to set up. Default: `main`. |
+| `-RepoUrl <url>` | `--repo <url>` | Repository to clone. Default: `https://github.com/microsoft/dragon-copilot-extension-samples.git`. |
 | `-SkipUpdate` | `--skip-update` | Use the existing clone as it is; don't fetch the latest commits. |
 | `-ForceInstall` | `--force-install` | Run `npm ci` even if the dependencies look up to date. |
 | `-SetupOnly` | `--setup-only` | Download and install only; don't start the sandbox. |
@@ -149,15 +149,15 @@ To see the built-in help, run one of these in the folder that contains the scrip
 
 ## Setting up another branch
 
-To try another branch, give it its own folder so it doesn't replace your current setup. For example,
-for the `AIDraft_QualityCheck_UXChanges` branch:
+To try another branch, give it its own folder so it doesn't replace your current setup. Replace
+`<branch>` with the branch name:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\setup-extensions-sandbox.ps1 -Branch AIDraft_QualityCheck_UXChanges -InstallDir $HOME\dragon-samples-aidraft
+powershell -ExecutionPolicy Bypass -File .\setup-extensions-sandbox.ps1 -Branch <branch> -InstallDir $HOME\dragon-samples-other
 ```
 
 ```bash
-bash setup-extensions-sandbox.sh --branch AIDraft_QualityCheck_UXChanges --dir ~/dragon-samples-aidraft
+bash setup-extensions-sandbox.sh --branch <branch> --dir ~/dragon-samples-other
 ```
 
 If you use the same folder instead, the script switches that clone to the branch, as long as it has no

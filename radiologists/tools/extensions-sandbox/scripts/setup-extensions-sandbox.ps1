@@ -32,7 +32,7 @@
     .\setup-extensions-sandbox.ps1 -SetupOnly
 
 .EXAMPLE
-    .\setup-extensions-sandbox.ps1 -Branch AIDraft_QualityCheck_UXChanges -InstallDir $HOME\dragon-samples-aidraft
+    .\setup-extensions-sandbox.ps1 -Branch <branch> -InstallDir $HOME\dragon-samples-other
 #>
 [CmdletBinding()]
 param(
@@ -40,9 +40,9 @@ param(
     # from a copy of the repository and this isn't given, that copy is used instead.
     [string]$InstallDir = (Join-Path $HOME 'dragon-copilot-extension-samples'),
 
-    [string]$RepoUrl = 'https://github.com/4NK17gupta/dragon-copilot-extension-samples.git',
+    [string]$RepoUrl = 'https://github.com/microsoft/dragon-copilot-extension-samples.git',
 
-    [string]$Branch = 'Partner',
+    [string]$Branch = 'main',
 
     # Install missing or outdated Git / Node.js with winget (Windows only).
     [switch]$InstallPrerequisites,
