@@ -6,6 +6,9 @@ import { CliWizardDialog } from '../CliWizardDialog';
 const REPORT_CONTENT_TYPE = 'application/vnd.ms-dragon.rad.report+json';
 const PATIENT_INFORMATION_CONTENT_TYPE = 'application/vnd.ms-dragon.rad.patient-information+json';
 const TENANT_ID = '00000000-0000-0000-0000-000000000001';
+const CUSTOMER_TENANT_ID = '11111111-1111-1111-1111-111111111111';
+const TENANT_LABEL = /^Partner tenant ID \(Microsoft Entra\)/;
+const CUSTOMER_TENANT_WARNING = /This is the simulated customer tenant ID/;
 const AUTH_NOTE = 'Authentication is not simulated: the sandbox endpoint does not check the access token Dragon Copilot requires.';
 
 // Mirrors GET /api/cli/options, which is sourced from the CLI's manifest core.
@@ -67,6 +70,7 @@ let fetchMock: Mock<(input: RequestInfo | URL, init?: RequestInit) => Promise<Re
 let onGenerated: Mock<(yaml: string) => void>;
 let onOpenChange: Mock<(open: boolean) => void>;
 let options: typeof OPTIONS;
+let authConfig: Record<string, unknown>;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -81,13 +85,15 @@ async function openWizard() {
       <CliWizardDialog open onOpenChange={onOpenChange} onGenerated={onGenerated} />
     </FluentProvider>,
   );
-  await screen.findByRole('textbox', { name: /^Azure Entra ID tenant ID/ });
+  await screen.findByRole('textbox', { name: TENANT_LABEL });
 }
 
-function enterTenantId() {
-  fireEvent.change(screen.getByRole('textbox', { name: /^Azure Entra ID tenant ID/ }), {
-    target: { value: TENANT_ID },
-  });
+function tenantInput() {
+  return screen.getByRole('textbox', { name: TENANT_LABEL });
+}
+
+function enterTenantId(value = TENANT_ID) {
+  fireEvent.change(tenantInput(), { target: { value } });
 }
 
 function startCustom() {
@@ -114,15 +120,39 @@ function generateRequests() {
 
 beforeEach(() => {
   options = OPTIONS;
+  authConfig = { enabled: false, tenantId: '', clientId: '', scope: '', hasSecret: false };
   onGenerated = vi.fn<(yaml: string) => void>();
   onOpenChange = vi.fn<(open: boolean) => void>();
   fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async (input) => {
     const url = String(input);
     if (url.endsWith('/api/cli/options')) return json(options);
     if (url.endsWith('/api/cli/generate')) return json({ generated: true, valid: true, yaml: 'name: generated\n' });
+    if (url.endsWith('/api/auth/config')) return json(authConfig);
+    if (url.endsWith('/api/simulated-environment')) return json({ customerTenantId: CUSTOMER_TENANT_ID });
     return json({});
   });
   vi.stubGlobal('fetch', fetchMock);
+});
+
+describe('CliWizardDialog (partner tenant)', () => {
+  it('prefills the partner tenant from Auth settings', async () => {
+    authConfig = { ...authConfig, tenantId: TENANT_ID };
+    await openWizard();
+
+    await waitFor(() => expect(tenantInput()).toHaveValue(TENANT_ID));
+    expect(screen.queryByText(CUSTOMER_TENANT_WARNING)).not.toBeInTheDocument();
+  });
+
+  it('warns, without blocking generation, when the simulated customer tenant is entered', async () => {
+    await openWizard();
+
+    enterTenantId(CUSTOMER_TENANT_ID.toUpperCase());
+    expect(await screen.findByText(CUSTOMER_TENANT_WARNING)).toBeInTheDocument();
+    expect(generateButton()).toBeEnabled();
+
+    enterTenantId(TENANT_ID);
+    expect(screen.queryByText(CUSTOMER_TENANT_WARNING)).not.toBeInTheDocument();
+  });
 });
 
 describe('CliWizardDialog (custom mode)', () => {

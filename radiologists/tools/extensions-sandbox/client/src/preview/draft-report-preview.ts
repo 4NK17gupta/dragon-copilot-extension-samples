@@ -3,6 +3,7 @@ interface DraftSection {
   content: string;
   sectionOrder: number;
   aiGenerated: boolean;
+  aiConfidence: number;
 }
 
 type DraftReportPreview =
@@ -22,13 +23,36 @@ function unwrapDraftReport(body: unknown): unknown {
   return isEnvelope ? body.draftReport : body;
 }
 
-function isDraftSection(value: unknown): value is DraftSection {
-  return isRecord(value)
-    && typeof value.name === 'string' && /^[a-z][a-z_]*$/.test(value.name)
-    && typeof value.content === 'string'
-    && typeof value.aiGenerated === 'boolean'
-    && typeof value.sectionOrder === 'number'
-    && Number.isInteger(value.sectionOrder) && value.sectionOrder >= 1;
+/**
+ * Reads a JSON number, or a number written as a string such as "0.9", which Dragon Copilot and the
+ * server's binder also accept. The server has already checked the string's format by this point.
+ */
+function displayNumber(value: unknown): number | undefined {
+  const number = typeof value === 'string' && value !== '' && value.trim() === value ? Number(value) : value;
+  return typeof number === 'number' && Number.isFinite(number) ? number : undefined;
+}
+
+function toDraftSection(value: unknown): DraftSection | null {
+  if (!isRecord(value)) return null;
+  const aiConfidence = displayNumber(value.aiConfidence);
+  const sectionOrder = displayNumber(value.sectionOrder);
+  if (typeof value.name !== 'string' || !/^[a-z][a-z_]*$/.test(value.name)
+    || typeof value.content !== 'string'
+    || typeof value.aiGenerated !== 'boolean'
+    || aiConfidence === undefined || aiConfidence < 0 || aiConfidence > 1
+    || sectionOrder === undefined || !Number.isInteger(sectionOrder) || sectionOrder < 1) {
+    return null;
+  }
+  return { name: value.name, content: value.content, sectionOrder, aiGenerated: value.aiGenerated, aiConfidence };
+}
+
+function isDraftSection(section: DraftSection | null): section is DraftSection {
+  return section !== null;
+}
+
+/** Formats an `aiConfidence` between 0 and 1 as a percentage with at most one decimal place. */
+export function formatConfidence(aiConfidence: number): string {
+  return `${Math.round(aiConfidence * 1000) / 10}%`;
 }
 
 /** The server validates the full schema; these guards narrow only the display fields. */
@@ -54,9 +78,10 @@ export function buildDraftReportPreview(result: unknown): DraftReportPreview | n
   const body = unwrapDraftReport(result.rawBody);
   const content = isRecord(body) ? body.reportContent : undefined;
   const report = isRecord(content) ? content.structuredReport : undefined;
+  const sections = isRecord(report) && Array.isArray(report.sections) ? report.sections.map(toDraftSection) : null;
   if (!isRecord(content) || content.format !== 'structured_report'
     || !isRecord(report) || (report.format !== 'plain_text' && report.format !== 'markdown')
-    || !Array.isArray(report.sections) || !report.sections.every(isDraftSection)) {
+    || sections === null || !sections.every(isDraftSection)) {
     return {
       kind: 'error',
       message: 'The incoming output is not a supported structured draft report. See the Outputs tab for the raw payload.',
@@ -66,6 +91,6 @@ export function buildDraftReportPreview(result: unknown): DraftReportPreview | n
   return {
     kind: 'report',
     format: report.format,
-    sections: [...report.sections].sort((a, b) => a.sectionOrder - b.sectionOrder),
+    sections: sections.sort((a, b) => a.sectionOrder - b.sectionOrder),
   };
 }

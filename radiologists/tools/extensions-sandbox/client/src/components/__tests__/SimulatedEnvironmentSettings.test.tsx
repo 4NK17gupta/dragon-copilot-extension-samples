@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { FluentProvider, webLightTheme } from '@fluentui/react-components';
+import { Button, FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { SimulatedEnvironmentSettings } from '../SimulatedEnvironmentSettings';
 
 const submissionPath = (environmentId: string) =>
@@ -50,10 +50,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderSettings() {
+function renderSettings(props: Parameters<typeof SimulatedEnvironmentSettings>[0] = {}) {
   render(
     <FluentProvider theme={webLightTheme}>
-      <SimulatedEnvironmentSettings />
+      <SimulatedEnvironmentSettings {...props} />
     </FluentProvider>,
   );
 }
@@ -69,6 +69,42 @@ describe('SimulatedEnvironmentSettings', () => {
     renderSettings();
     expect(await screen.findByText(`POST ${new URL(stored.submissionPath, window.location.origin).href}`)).toBeInTheDocument();
     expect(screen.getByText(/Stored results: 1/)).toBeInTheDocument();
+  });
+
+  it('shows the authentication disclaimer as small print right after the endpoint URL', async () => {
+    renderSettings();
+    const url = await screen.findByText(`POST ${new URL(stored.submissionPath, window.location.origin).href}`);
+    const disclaimer = screen.getByRole('note');
+    expect(disclaimer).toHaveTextContent(
+      'Authentication is not simulated: the sandbox endpoint does not check the access token Dragon Copilot requires.',
+    );
+    expect(disclaimer).toHaveClass('simulated-environment-disclaimer');
+    expect(url.closest('.simulated-environment-url')!.nextElementSibling).toBe(disclaimer);
+  });
+
+  it('makes Save a secondary button that is disabled while saving', async () => {
+    let finishPut!: () => void;
+    const serve = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      if (init?.method === 'PUT') await new Promise<void>((resolve) => { finishPut = resolve; });
+      return serve(input, init);
+    });
+    render(
+      <FluentProvider theme={webLightTheme}>
+        <SimulatedEnvironmentSettings />
+        <Button appearance="secondary">Secondary reference</Button>
+        <Button appearance="primary">Primary reference</Button>
+      </FluentProvider>,
+    );
+    fireEvent.click(await screen.findByText('Configure'));
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save.className).toBe(screen.getByRole('button', { name: 'Secondary reference' }).className);
+    expect(save.className).not.toBe(screen.getByRole('button', { name: 'Primary reference' }).className);
+
+    fireEvent.click(save);
+    expect(await screen.findByRole('button', { name: 'Saving…' })).toBeDisabled();
+    finishPut();
+    expect(await screen.findByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
   it('saves the environment, orders and Marketplace IDs, then shows the new URL', async () => {
@@ -141,6 +177,25 @@ describe('SimulatedEnvironmentSettings', () => {
     fireEvent.click(await screen.findByText('Clear stored results'));
     expect(await screen.findByText(/Stored results: 0/)).toBeInTheDocument();
     expect(screen.queryByText('Clear stored results')).toBeNull();
+  });
+
+  it('offers Clear stored results while the Requests received panel lists requests, and reports the clear', async () => {
+    environment = { ...stored, storedResultCount: 0 };
+    const onStoredResultsCleared = vi.fn();
+    renderSettings({ requestCount: 2, onStoredResultsCleared });
+    fireEvent.click(await screen.findByText('Clear stored results'));
+    await waitFor(() => expect(onStoredResultsCleared).toHaveBeenCalledTimes(1));
+  });
+
+  it('keeps the Requests received panel when clearing stored results fails', async () => {
+    const serve = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) =>
+      init?.method === 'DELETE' ? json({ error: 'Clear failed.' }, 500) : serve(input, init));
+    const onStoredResultsCleared = vi.fn();
+    renderSettings({ requestCount: 1, onStoredResultsCleared });
+    fireEvent.click(await screen.findByText('Clear stored results'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Clear failed.');
+    expect(onStoredResultsCleared).not.toHaveBeenCalled();
   });
 
   it('says why the endpoint could not be loaded, and loads it on Try again', async () => {
