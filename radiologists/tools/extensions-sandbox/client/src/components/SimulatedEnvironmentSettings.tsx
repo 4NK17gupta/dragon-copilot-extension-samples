@@ -24,6 +24,9 @@ interface Draft {
 
 const UNREACHABLE_MESSAGE = 'Could not reach the sandbox server.';
 
+// Temporary: remove when the sandbox mocks authentication (story 7.6).
+const AUTH_DISCLAIMER = 'Authentication is not simulated: the sandbox endpoint does not check the access token Dragon Copilot requires.';
+
 function isSimulatedEnvironment(value: unknown): value is SimulatedEnvironment {
   const candidate = value as SimulatedEnvironment | null;
   return typeof candidate === 'object' && candidate !== null
@@ -65,6 +68,10 @@ async function callApi(method: 'GET' | 'PUT' | 'DELETE', path: string, body?: un
 interface Props {
   /** Change it after a submission so the stored result count is reloaded. */
   refreshKey?: number;
+  /** How many requests the Requests received panel lists. Clear stored results shows while there are any. */
+  requestCount?: number;
+  /** Called after the stored results are cleared, so the panel and the tabs can be emptied too. */
+  onStoredResultsCleared?: () => void;
 }
 
 /**
@@ -72,7 +79,7 @@ interface Props {
  * simulated endpoint checks them against: the customer tenant, the environment, how the loaded
  * extension was installed, and the orders.
  */
-export function SimulatedEnvironmentSettings({ refreshKey = 0 }: Props) {
+export function SimulatedEnvironmentSettings({ refreshKey = 0, requestCount = 0, onStoredResultsCleared }: Props) {
   const [environment, setEnvironment] = useState<SimulatedEnvironment | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -151,7 +158,11 @@ export function SimulatedEnvironmentSettings({ refreshKey = 0 }: Props) {
     }), true);
   };
 
-  const clearStoredResults = () => void apply(() => callApi('DELETE', '/api/simulated-environment/stored-results'), false);
+  const clearStoredResults = () => void apply(async () => {
+    const cleared = await callApi('DELETE', '/api/simulated-environment/stored-results');
+    onStoredResultsCleared?.();
+    return cleared;
+  }, false);
 
   const copy = async () => {
     try {
@@ -185,13 +196,14 @@ export function SimulatedEnvironmentSettings({ refreshKey = 0 }: Props) {
         </Button>
         <span className="visually-hidden" role="status">{copied ? 'Endpoint URL copied' : ''}</span>
       </div>
+      <p className="simulated-environment-disclaimer" role="note">{AUTH_DISCLAIMER}</p>
       <p className="field-description">
         Send submissions here as you would to Dragon Copilot. The endpoint answers while the sandbox is listening (Run Test), and answers 503 otherwise.
         The extension installed in this environment is the loaded manifest.
       </p>
       <p className="field-description">
         Stored results: {environment.storedResultCount}
-        {environment.storedResultCount > 0 && (
+        {(environment.storedResultCount > 0 || requestCount > 0) && (
           <>
             {' '}
             <Link onClick={clearStoredResults} disabled={busy}>Clear stored results</Link>
@@ -247,7 +259,7 @@ export function SimulatedEnvironmentSettings({ refreshKey = 0 }: Props) {
         </div>
 
         <div className="simulated-environment-actions">
-          <Button appearance="primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>
+          <Button appearance="secondary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>
         </div>
       </div>
     </div>

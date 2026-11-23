@@ -95,6 +95,20 @@ interface CliWizardDialogProps {
 
 type Mode = 'template' | 'custom';
 
+const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** GETs a JSON object, or `null` if the request fails for any reason. */
+async function fetchOptionalJson(url: string): Promise<Record<string, unknown> | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const data: unknown = await response.json();
+    return data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 function outputDefaultsFor(options: CliOptions, toolType: string): OutputDefaults {
   return options.outputDefaultsByToolType[toolType] ?? {
     name: options.defaults.outputName,
@@ -175,6 +189,7 @@ export function CliWizardDialog({ open, onOpenChange, onGenerated }: CliWizardDi
 
   const [template, setTemplate] = useState<string>('');
   const [tenantId, setTenantId] = useState<string>('');
+  const [customerTenantId, setCustomerTenantId] = useState<string>('');
 
   const [extensionName, setExtensionName] = useState<string>('');
   const [extensionDescription, setExtensionDescription] = useState<string>('');
@@ -219,6 +234,33 @@ export function CliWizardDialog({ open, onOpenChange, onGenerated }: CliWizardDi
       cancelled = true;
     };
   }, [open, options]);
+
+  // auth.tenantId is the partner tenant, which Auth settings already hold, so it
+  // is offered when the field is empty. The simulated customer tenant is read
+  // on every open (it can change in Settings) so it can be flagged if entered.
+  // Both lookups are conveniences: a failure just leaves the field as it is.
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    (async () => {
+      const [auth, environment] = await Promise.all([
+        fetchOptionalJson('/api/auth/config'),
+        fetchOptionalJson('/api/simulated-environment'),
+      ]);
+      if (cancelled) return;
+
+      const partnerTenantId = typeof auth?.tenantId === 'string' ? auth.tenantId.trim() : '';
+      if (GUID_PATTERN.test(partnerTenantId)) {
+        setTenantId((current) => (current.trim() ? current : partnerTenantId));
+      }
+      setCustomerTenantId(typeof environment?.customerTenantId === 'string' ? environment.customerTenantId : '');
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   // Drop the previous attempt's failure so reopening the wizard starts clean.
   useEffect(() => {
@@ -356,6 +398,11 @@ export function CliWizardDialog({ open, onOpenChange, onGenerated }: CliWizardDi
 
   const selectedTemplate = options?.templates.find((item) => item.id === template);
 
+  // A warning, not a block: the offline fake-issuer setup in the README uses
+  // the same GUID for both tenants on purpose.
+  const isCustomerTenant =
+    customerTenantId !== '' && tenantId.trim().toLowerCase() === customerTenantId.toLowerCase();
+
   return (
     <Dialog open={open} onOpenChange={(_event, data) => onOpenChange(data.open)}>
       <DialogSurface className="cli-wizard-surface">
@@ -402,9 +449,15 @@ export function CliWizardDialog({ open, onOpenChange, onGenerated }: CliWizardDi
                 )}
 
                 <Field
-                  label="Azure Entra ID tenant ID"
+                  label="Partner tenant ID (Microsoft Entra)"
                   required
-                  hint="The tenant your extension is deployed to, in GUID format."
+                  hint="Your organization's tenant: it owns the extension and issues its access tokens. Saved as auth.tenantId, in GUID format. Not the customer tenant, whose ID goes in the submission URL."
+                  validationState={isCustomerTenant ? 'warning' : 'none'}
+                  validationMessage={
+                    isCustomerTenant
+                      ? 'This is the simulated customer tenant ID, which belongs in the submission URL. Enter your partner tenant ID unless both are meant to be the same.'
+                      : undefined
+                  }
                 >
                   <Input
                     value={tenantId}

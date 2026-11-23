@@ -7,11 +7,24 @@ export interface ExecuteResult {
   sentRequest?: unknown;
 }
 
+/** Why a contract-based run failed, as shown in the Results tab. */
+export interface ExecuteErrorDetails {
+  message: string;
+  /** The HTTP status the sandbox server answered with. Absent when the server was unreachable. */
+  status?: number;
+  endpoint?: string;
+  cause?: string;
+  troubleshooting?: string[];
+  sentRequest?: unknown;
+}
+
 export interface ValidationCheck {
   check: string;
   passed: boolean;
   path?: string;
   error?: string;
+  /** Advice for a check that passed, such as a value Dragon Copilot accepts but the schema advises against. */
+  warning?: string;
 }
 
 export interface ValidationResult {

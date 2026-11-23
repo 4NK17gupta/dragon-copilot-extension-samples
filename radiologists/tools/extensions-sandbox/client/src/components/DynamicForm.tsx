@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useImperativeHandle, forwardRef } from 'react';
+import { useState, useCallback, useMemo, useImperativeHandle, forwardRef, useId } from 'react';
 import {
   Input,
   Textarea,
@@ -6,7 +6,6 @@ import {
   Option,
   Checkbox,
   Label,
-  Badge,
 } from '@fluentui/react-components';
 
 export interface SchemaProperty {
@@ -70,6 +69,7 @@ export const DynamicForm = forwardRef<DynamicFormHandle, DynamicFormProps>(funct
   { inputs, values, onChange, onValidationChange },
   ref,
 ) {
+  const formId = useId();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
@@ -194,28 +194,32 @@ export const DynamicForm = forwardRef<DynamicFormHandle, DynamicFormProps>(funct
         <section key={group.key} className="dynamic-form-group">
           {group.title && <h4 className="dynamic-form-group-title">{group.title}</h4>}
 
-          {group.fields.map((field) => (
-            <div key={field.path} className="dynamic-form-field">
-              <Label className="field-label" required={field.required}>
-                {field.label}
-                {field.fieldType !== 'text' && field.fieldType !== 'textarea' && (
-                  <Badge appearance="outline" size="small" className="field-type-badge">
-                    {field.fieldType}
-                  </Badge>
+          {group.fields.map((field) => {
+            const controlId = `${formId}${field.path.replace(/\s+/g, '_')}`;
+            const descriptionId = field.description ? `${controlId}-description` : undefined;
+
+            return (
+              <div key={field.path} className="dynamic-form-field">
+                <Label className="field-label" htmlFor={controlId} required={field.required}>
+                  {field.label}
+                </Label>
+
+                {renderFieldInput(field, values[field.path] || '', handleChange, handleBlur, {
+                  id: controlId,
+                  'aria-describedby': descriptionId,
+                })}
+
+                {/* Announced with the field instead of shown under it. */}
+                {descriptionId && (
+                  <span id={descriptionId} hidden>{field.description}</span>
                 )}
-              </Label>
 
-              {renderFieldInput(field, values[field.path] || '', handleChange, handleBlur)}
-
-              {field.description && (
-                <p className="field-description">{field.description}</p>
-              )}
-
-              {touched[field.path] && errors[field.path] && (
-                <p className="field-error">{errors[field.path]}</p>
-              )}
-            </div>
-          ))}
+                {touched[field.path] && errors[field.path] && (
+                  <p className="field-error">{errors[field.path]}</p>
+                )}
+              </div>
+            );
+          })}
         </section>
       ))}
 
@@ -226,16 +230,25 @@ export const DynamicForm = forwardRef<DynamicFormHandle, DynamicFormProps>(funct
   );
 });
 
+interface FieldControlProps {
+  id: string;
+  'aria-describedby'?: string;
+}
+
 function renderFieldInput(
   field: FieldDefinition,
   value: string,
   onChange: (field: FieldDefinition, value: string) => void,
   onBlur: (field: FieldDefinition) => void,
+  controlProps: FieldControlProps,
 ) {
+  const placeholder = `Enter ${field.label}`;
+
   switch (field.fieldType) {
     case 'dropdown':
       return (
         <Dropdown
+          {...controlProps}
           value={value || ''}
           selectedOptions={value ? [value] : []}
           onOptionSelect={(_, data) => onChange(field, data.optionValue as string)}
@@ -251,6 +264,7 @@ function renderFieldInput(
     case 'boolean':
       return (
         <Checkbox
+          {...controlProps}
           checked={value === 'true'}
           onChange={(_, data) => onChange(field, data.checked ? 'true' : 'false')}
           aria-label={field.label}
@@ -260,19 +274,22 @@ function renderFieldInput(
     case 'number':
       return (
         <Input
+          {...controlProps}
           type="number"
           value={value}
           onChange={(_, data) => onChange(field, data.value)}
           onBlur={() => onBlur(field)}
-          placeholder={inputPlaceholder(field)}
+          placeholder={placeholder}
           min={field.constraints?.minimum}
           max={field.constraints?.maximum}
         />
       );
 
     case 'date':
+      // The native date control shows the browser's format and submits ISO YYYY-MM-DD.
       return (
         <Input
+          {...controlProps}
           type="date"
           value={value}
           onChange={(_, data) => onChange(field, data.value)}
@@ -283,6 +300,7 @@ function renderFieldInput(
     case 'json':
       return (
         <Textarea
+          {...controlProps}
           value={value}
           onChange={(_, data) => onChange(field, data.value)}
           onBlur={() => onBlur(field)}
@@ -296,10 +314,11 @@ function renderFieldInput(
     case 'textarea':
       return (
         <Textarea
+          {...controlProps}
           value={value}
           onChange={(_, data) => onChange(field, data.value)}
           onBlur={() => onBlur(field)}
-          placeholder={inputPlaceholder(field)}
+          placeholder={placeholder}
           resize="vertical"
           rows={3}
         />
@@ -309,19 +328,15 @@ function renderFieldInput(
     default:
       return (
         <Input
+          {...controlProps}
           value={value}
           onChange={(_, data) => onChange(field, data.value)}
           onBlur={() => onBlur(field)}
-          placeholder={inputPlaceholder(field)}
+          placeholder={placeholder}
           maxLength={field.constraints?.maxLength}
         />
       );
   }
-}
-
-/** The description renders under the field, so it is not repeated as placeholder text. */
-function inputPlaceholder(field: FieldDefinition): string | undefined {
-  return field.description ? undefined : `Enter ${field.label}`;
 }
 
 /**

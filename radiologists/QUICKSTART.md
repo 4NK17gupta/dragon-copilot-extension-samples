@@ -60,7 +60,7 @@ Start the sample and use the instructions in your selected README to:
 After local verification, use the extensions sandbox to run the manifest-configured request and review validated outputs before packaging.
 
 1. Keep your extension running.
-2. Start the sandbox and open it in your browser. For setup details, see the [sandbox README](tools/extensions-sandbox/README.md).
+2. Start the sandbox and open it in your browser. The [setup scripts](tools/extensions-sandbox/scripts/README.md) install and start it in one step; for manual setup, see the [sandbox README](tools/extensions-sandbox/README.md).
 3. For your first run, upload the [sample manifest](src/samples/ContractBased/extension.yaml).
 4. Set the tool endpoint to your running service (for example, `http://localhost:5080/v1/process`).
 5. Fill in the inputs and click **Run**.
