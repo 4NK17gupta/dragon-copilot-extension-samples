@@ -144,7 +144,7 @@ export function buildProcessRequest(
 export async function callExtensionAsync(
   options: ExecuteToolOptions,
 ): Promise<ExecuteToolResult> {
-  const { tool, inputs: parsedInputs, customerTenantId, extensibilityApiVersion, bearerToken, timeoutMs = 30000 } = options;
+  const { tool, inputs: parsedInputs, customerTenantId, extensibilityApiVersion, bearerToken, timeoutMs = 300_000 } = options;
 
   if (!tool.endpoint) {
     throw new Error('Tool endpoint is not configured.');
