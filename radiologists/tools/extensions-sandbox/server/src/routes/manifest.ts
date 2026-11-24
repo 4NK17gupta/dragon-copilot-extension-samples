@@ -523,7 +523,7 @@ manifestRouter.post('/execute', async (req, res) => {
     ) {
       cause = 'Request timed out';
       troubleshooting = [
-        'The extension did not respond within the 30-second timeout.',
+        'The extension did not respond within the 5-minute timeout.',
         'Verify the service is healthy and not overloaded.',
         'Consider increasing processing efficiency or timeout configuration.',
       ];
